@@ -1,5 +1,3 @@
-[![Checks](https://github.com/mebaysan/modelbeacon/actions/workflows/ci.yml/badge.svg)](https://github.com/mebaysan/modelbeacon/actions/workflows/ci.yml)
-
 # ModelBeacon
 
 **Compare coding models, explore their scores, and choose with context.**
