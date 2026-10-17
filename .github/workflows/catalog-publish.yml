@@ -1,0 +1,35 @@
+name: Publish reviewed catalog
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: catalog-pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run catalog:check
+      - run: |
+          mkdir -p artifacts/site/catalog artifacts/site/licenses
+          cp data/catalog.json artifacts/site/catalog/v1.json
+          cp data/licenses/* artifacts/site/licenses/
+          cp THIRD_PARTY_NOTICES.md artifacts/site/THIRD_PARTY_NOTICES.md
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: artifacts/site
+      - uses: actions/deploy-pages@v4
+        id: deployment

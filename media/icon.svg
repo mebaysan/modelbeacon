@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="tile" x1="20" y1="10" x2="230" y2="256" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#252052"/><stop offset="1" stop-color="#0C1327"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="44" y1="68" x2="212" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#47E4E0"/><stop offset="0.5" stop-color="#A9E9FF"/><stop offset="1" stop-color="#9C8CFF"/>
+    </linearGradient>
+    <linearGradient id="tower" x1="101" y1="112" x2="163" y2="199" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F3F0FF"/><stop offset="1" stop-color="#A99AFF"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop stop-color="#82E8FF" stop-opacity="0.28"/><stop offset="1" stop-color="#82E8FF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="2" y="2" width="252" height="252" rx="54" fill="url(#tile)"/>
+  <rect x="3" y="3" width="250" height="250" rx="53" stroke="#B3A4FF" stroke-opacity="0.22" stroke-width="2"/>
+  <circle cx="128" cy="78" r="75" fill="url(#glow)"/>
+  <path d="M95 72L44 45V110L95 84V72ZM161 72L212 45V110L161 84V72Z" fill="url(#beam)"/>
+  <rect x="109" y="55" width="38" height="45" rx="13" fill="url(#beam)"/>
+  <path d="M112 113H144L164 188H92L112 113Z" fill="url(#tower)"/>
+  <path d="M106 136L152 149L157 167L102 151L106 136Z" fill="#171B38"/>
+  <rect x="82" y="198" width="92" height="14" rx="7" fill="url(#tower)"/>
+</svg>

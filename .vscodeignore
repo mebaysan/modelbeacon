@@ -1,0 +1,14 @@
+**
+!package.json
+!CHANGELOG.md
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+!PRIVACY.md
+!docs/**
+!dist/**
+!media/activity-bar.svg
+!media/icon.png
+!media/hero.png
+!media/screenshots/*.png
+!data/catalog.json
+!data/licenses/**

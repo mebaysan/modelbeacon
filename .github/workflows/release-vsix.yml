@@ -1,0 +1,28 @@
+name: Build release VSIX
+on:
+  workflow_dispatch:
+    inputs:
+      catalog_url:
+        description: Deployed HTTPS URL ending in /catalog/v1.json
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      LLMBENCH_CATALOG_URL: ${{ inputs.catalog_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run package:release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modelbeacon
+          path: modelbeacon.vsix

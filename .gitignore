@@ -5,5 +5,5 @@ dist/
 playwright-report/
 test-results/
 .DS_Store
-data/catalog.candidate.json
 artifacts/
+.modelbeacon-package-*/

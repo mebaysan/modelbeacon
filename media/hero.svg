@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title description">
+  <title id="title">ModelBeacon — Compare models. Inspect the evidence.</title>
+  <desc id="description">A lighthouse beside the ModelBeacon name, with a decorative bar chart. Score charts, task guidance, and local model history for Copilot and custom models in VS Code. The chart is an illustration, not model data.</desc>
+  <defs>
+    <linearGradient id="backdrop" x1="0" y1="0" x2="1200" y2="320" gradientUnits="userSpaceOnUse"><stop stop-color="#151527"/><stop offset="1" stop-color="#10131E"/></linearGradient>
+    <radialGradient id="atmosphere"><stop stop-color="#8272EF" stop-opacity="0.17"/><stop offset="1" stop-color="#8272EF" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="320" rx="20" fill="url(#backdrop)"/>
+  <ellipse cx="1010" cy="105" rx="380" ry="280" fill="url(#atmosphere)"/>
+  <path d="M1066 0L906 320M1154 0L994 320M1242 0L1082 320" stroke="#8D7DF3" stroke-opacity="0.06" stroke-width="30"/>
+<svg xmlns="http://www.w3.org/2000/svg" x="48" y="50" width="220" height="220" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="tile" x1="20" y1="10" x2="230" y2="256" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#252052"/><stop offset="1" stop-color="#0C1327"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="44" y1="68" x2="212" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#47E4E0"/><stop offset="0.5" stop-color="#A9E9FF"/><stop offset="1" stop-color="#9C8CFF"/>
+    </linearGradient>
+    <linearGradient id="tower" x1="101" y1="112" x2="163" y2="199" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F3F0FF"/><stop offset="1" stop-color="#A99AFF"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop stop-color="#82E8FF" stop-opacity="0.28"/><stop offset="1" stop-color="#82E8FF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="2" y="2" width="252" height="252" rx="54" fill="url(#tile)"/>
+  <rect x="3" y="3" width="250" height="250" rx="53" stroke="#B3A4FF" stroke-opacity="0.22" stroke-width="2"/>
+  <circle cx="128" cy="78" r="75" fill="url(#glow)"/>
+  <path d="M95 72L44 45V110L95 84V72ZM161 72L212 45V110L161 84V72Z" fill="url(#beam)"/>
+  <rect x="109" y="55" width="38" height="45" rx="13" fill="url(#beam)"/>
+  <path d="M112 113H144L164 188H92L112 113Z" fill="url(#tower)"/>
+  <path d="M106 136L152 149L157 167L102 151L106 136Z" fill="#171B38"/>
+  <rect x="82" y="198" width="92" height="14" rx="7" fill="url(#tower)"/>
+</svg>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="308" y="69" fill="#B5A9F5" font-size="11" font-weight="600" letter-spacing="2">MODEL COMPARISONS FOR VS CODE</text>
+    <text x="304" y="137" fill="#F6F3FF" font-size="62" font-weight="650" letter-spacing="-2.4">ModelBeacon</text>
+    <text x="308" y="183" fill="#DFDCEC" font-size="25" letter-spacing="-0.3">Compare models. Inspect the evidence.</text>
+    <g fill="#C3BED6" font-size="15">
+      <text x="309" y="229">Score charts</text>
+      <circle cx="414" cy="224" r="2" fill="#66DAD8"/>
+      <text x="432" y="229">Task guidance</text>
+      <circle cx="551" cy="224" r="2" fill="#66DAD8"/>
+      <text x="569" y="229">Local model history</text>
+    </g>
+    <text x="309" y="266" fill="#A8A5BC" font-size="13">Copilot + custom models</text>
+    <g transform="translate(926 74)" aria-hidden="true">
+      <rect width="226" height="172" rx="16" fill="#18182D" stroke="#A698ED" stroke-opacity="0.22"/>
+      <text x="20" y="31" fill="#B5A9F5" font-size="10" font-weight="600" letter-spacing="1.5">SCORE CHARTS</text>
+      <path d="M20 48H206M20 141H206M67 48V141M114 48V141M161 48V141" stroke="#A698ED" stroke-opacity="0.10"/>
+      <rect x="20" y="61" width="163" height="14" rx="4" fill="#64DAD8"/>
+      <rect x="20" y="90" width="112" height="14" rx="4" fill="#A99AFF"/>
+      <rect x="20" y="119" width="143" height="14" rx="4" fill="#94BAF9"/>
+      <circle cx="23" cy="155" r="2" fill="#64DAD8"/>
+      <path d="M31 155H82" stroke="#89849F" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="104" cy="155" r="2" fill="#A99AFF"/>
+      <path d="M112 155H171" stroke="#89849F" stroke-width="2" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,152 @@
+{
+  "name": "modelbeacon",
+  "displayName": "ModelBeacon",
+  "description": "Compare Copilot and custom models with benchmark charts, sourced task guidance, pricing, and local model history.",
+  "version": "0.4.1",
+  "publisher": "mebaysan",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#151527",
+    "theme": "dark"
+  },
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.140.0",
+    "node": ">=22.18.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "copilot",
+    "llm",
+    "custom-models",
+    "comparison",
+    "benchmarks",
+    "charts",
+    "openrouter"
+  ],
+  "main": "./dist/extension.cjs",
+  "extensionKind": [
+    "ui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "llmBench.open",
+        "title": "Open in Editor",
+        "category": "ModelBeacon",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "llmBench.refreshModels",
+        "title": "Detect My Models",
+        "category": "ModelBeacon"
+      },
+      {
+        "command": "llmBench.refreshCatalog",
+        "title": "Refresh Catalog",
+        "category": "ModelBeacon"
+      },
+      {
+        "command": "llmBench.clearLocalModels",
+        "title": "Clear Local Models",
+        "category": "ModelBeacon"
+      },
+      {
+        "command": "llmBench.connectScores",
+        "title": "Connect OpenRouter Scores",
+        "category": "ModelBeacon"
+      },
+      {
+        "command": "llmBench.refreshScores",
+        "title": "Refresh Model Scores",
+        "category": "ModelBeacon"
+      },
+      {
+        "command": "llmBench.clearScores",
+        "title": "Disconnect and Clear Scores",
+        "category": "ModelBeacon"
+      }
+    ],
+    "configuration": {
+      "title": "ModelBeacon",
+      "properties": {
+        "llmBench.autoUpdateCatalog": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Check the published catalog when the explorer opens, at most once daily. No prompts, code, model IDs, or telemetry are sent. Uses bundled/cached data when offline."
+        },
+        "llmBench.includeCompositeScores": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "Include Artificial Analysis composite intelligence, coding, and agentic indexes from OpenRouter. These indexes may incorporate Terminal-Bench indirectly. Refresh scores after enabling. Disabled by default."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "llmBench",
+          "title": "ModelBeacon",
+          "icon": "media/activity-bar.svg"
+        }
+      ]
+    },
+    "views": {
+      "llmBench": [
+        {
+          "type": "webview",
+          "id": "llmBench.home",
+          "name": "ModelBeacon",
+          "contextualTitle": "ModelBeacon"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "llmBench.open",
+          "when": "view == llmBench.home",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run check && npm run catalog:check && npm run build",
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:ui": "npm run build && playwright test",
+    "test:extension": "npm run build && node scripts/test-extension.mjs",
+    "catalog:check": "node --experimental-strip-types scripts/catalog-check.mts",
+    "preview": "npm run build && node scripts/preview.mjs",
+    "package": "node scripts/package-local.mjs",
+    "package:release": "vsce package --out modelbeacon.vsix"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^22.19.0",
+    "@types/vscode": "1.140.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^6.0.0"
+  },
+  "type": "module",
+  "homepage": "https://mebaysan.com",
+  "author": {
+    "name": "mebaysan",
+    "url": "https://mebaysan.com"
+  }
+}
