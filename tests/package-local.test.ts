@@ -25,7 +25,17 @@ test('unsupported inline/reference images, HTML, unsafe schemes and complex link
     '[Open](command:workbench.action.files.openFile)', '[Local](file:///tmp/readme.md)',
     '[Data](data:text/plain,test)', '[Guide](docs/guide.md "title")',
     '[Guide](docs/guide(test).md)', '[Read [guide]](docs/guide.md)', '[Guide][reference]\n[reference]: docs/guide.md',
+    'Text [![Badge](media/badge.png)](https://example.com)',
+    '[![Badge](media/badge.png)](command:workbench.action.files.openFile)',
+    '[![Badge](media/badge.png)](javascript:alert(1))',
+    '[![Badge](media/badge.png)](https://example.com "title")',
   ]) assert.throws(() => localReadme(input), /unsupported/i);
+});
+
+test('standalone linked images retain their label and validated destination as text links', () => {
+  const destination = 'https://github.com/mebaysan/modelbeacon/actions/workflows/ci.yml';
+  assert.equal(localReadme(`[![Checks](${destination}/badge.svg)](${destination})\r\n`), `[Checks](${destination})\r\n`);
+  assert.equal(localReadme('[![Guide](media/guide.png)](docs/development.md)\n'), 'Guide (`docs/development.md`)\n');
 });
 
 test('canonical README produces no unresolved local links or images without changing its source', async () => {

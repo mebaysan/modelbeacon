@@ -143,9 +143,8 @@ function scoreDetailsId(entry: ComparisonEntry): string {
   return entry.catalog ? `details-${entry.catalog.id}` : `score-details-${entry.key}`;
 }
 
-function showScoreChartsButton(entry: ComparisonEntry): HTMLButtonElement | undefined {
-  if (!visibleScoreRecords().length) return undefined;
-  const control = button('Show score charts', 'button primary score-charts-button', () => {
+function showScoreChartsButton(entry: ComparisonEntry): HTMLButtonElement {
+  const control = button(state!.scores.loading ? 'Loading scores…' : 'Show score charts', 'button primary score-charts-button', () => {
     view.tab = 'explore';
     const searchable = `${entry.name} ${entry.provider} ${entry.runtime?.model.id ?? ''} ${entry.runtime?.model.version ?? ''}`.toLowerCase();
     if (!searchable.includes(view.query.trim().toLowerCase())) view.query = '';
@@ -159,7 +158,7 @@ function showScoreChartsButton(entry: ComparisonEntry): HTMLButtonElement | unde
       evidence?.scrollIntoView({ block: 'start' });
       evidence?.focus({ preventScroll: true });
     }
-    if (!state!.scores.links[entry.key]) send({ type: 'linkScores', key: entry.key });
+    send({ type: 'showScores', key: entry.key });
   });
   control.setAttribute('aria-label', `Show score charts for ${entry.label}`);
   control.disabled = state!.scores.loading;
@@ -264,10 +263,10 @@ function scoreStatus(): HTMLElement {
     block.append(element('p', 'score-cache-summary', `${number(records.length)} saved ${records.length === 1 ? 'score' : 'scores'} · ${number(references.size)} public ${references.size === 1 ? 'reference' : 'references'} available for the selected metrics.`));
     const hasLinkedReference = Object.values(scores.links).some(reference => references.has(reference));
     block.append(element('p', 'score-next-step', !records.length
-      ? 'No saved scores match the current metric selection. Refresh scores to fetch the selected evaluations, or review the composite index option.'
+      ? 'No saved scores match the current metric selection. Choose “Show score charts” to load the selected evaluations and choose a published reference.'
       : !hasLinkedReference
-        ? 'No models linked to these scores yet. Choose “Show score charts” on a model card to select a published reference. Your scores are already saved; no new download is needed.'
-        : 'Choose “Show score charts” on any model card to open its details. Unlinked models ask you to select a published reference.'));
+        ? 'No models linked to these scores yet. Choose “Show score charts” on a model card to automatically refresh scores and select a published reference.'
+        : 'Choose “Show score charts” on any model card to open its details and automatically refresh scores. Unlinked models ask you to select a published reference.'));
   }
   const include = element('input');
   include.type = 'checkbox';
@@ -278,7 +277,7 @@ function scoreStatus(): HTMLElement {
   include.addEventListener('change', () => send({ type: 'setCompositeScores', enabled: include.checked }));
   const label = element('label', 'checkbox-label', include, 'Include composite indexes');
   label.htmlFor = include.id;
-  const help = element('p', 'subtle', 'Optional Artificial Analysis intelligence, coding, and agentic indexes may incorporate Terminal-Bench. Off by default; GPQA Diamond and τ-bench are separate evaluations. Refresh scores after changing this option.');
+  const help = element('p', 'subtle', 'Optional Artificial Analysis intelligence, coding, and agentic indexes may incorporate Terminal-Bench. Off by default; GPQA Diamond and τ-bench are separate evaluations. Choose “Show score charts” or “Refresh scores” after changing this option.');
   help.id = 'composite-score-help';
   block.append(element('div', 'score-policy', label, help));
   if (scores.snapshot) block.append(element('p', 'subtle score-freshness',
@@ -286,7 +285,7 @@ function scoreStatus(): HTMLElement {
     isStale(scores.snapshot.asOf.slice(0, 10)) ? ' Source data is over 14 days old.' : '',
     isStale(scores.snapshot.fetchedAt.slice(0, 10)) ? ' This saved snapshot is over 14 days old; refresh for current results.' : '',
   ));
-  else block.append(element('p', 'subtle score-freshness', 'No score snapshot saved. An OpenRouter API key is required; enter it securely in VS Code. No inference calls are made.'));
+  else block.append(element('p', 'subtle score-freshness', 'No score snapshot saved. Choose “Show score charts” on a model to load scores and select a reference. VS Code asks for an OpenRouter API key when needed. No inference calls are made.'));
   if (scores.message) {
     const message = element('p', 'score-message subtle', scores.message);
     message.setAttribute('role', 'status');
@@ -445,8 +444,8 @@ function scoreReference(entry: ComparisonEntry): HTMLElement {
   const record = scores.snapshot?.records.find(item => item.modelId === reference);
   const link = button(reference ? 'Change score reference' : 'Link score reference', 'text-button', () => send({ type: 'linkScores', key: entry.key }));
   link.setAttribute('aria-label', `${reference ? 'Change' : 'Link'} score reference for ${entry.label}`);
-  link.disabled = !visibleScoreRecords().length || scores.loading;
-  if (link.disabled) link.title = scores.loading ? 'Wait for the score refresh to finish.' : scores.snapshot ? 'Refresh scores for the selected evaluations first.' : 'Connect OpenRouter to load score references first.';
+  link.disabled = scores.loading;
+  if (link.disabled) link.title = 'Wait for the score refresh to finish.';
   const block = element('div', 'score-reference',
     element('p', 'subtle', reference ? `Your reference: ${record?.modelName ?? reference}` : 'No score reference linked.'),
     reference ? element('p', 'score-reference-id subtle', reference) : undefined,
@@ -455,6 +454,7 @@ function scoreReference(entry: ComparisonEntry): HTMLElement {
   if (reference) {
     const unlink = button('Unlink score reference', 'text-button', () => send({ type: 'unlinkScores', key: entry.key }));
     unlink.setAttribute('aria-label', `Unlink score reference for ${entry.label}`);
+    unlink.disabled = scores.loading;
     block.append(unlink);
   }
   return block;
@@ -533,14 +533,21 @@ function scoreEvidence(entries: ComparisonEntry[], compact = false): HTMLElement
     section.append(scoreReference(entries[0]));
   }
   else section.append(element('div', 'score-reference-grid', ...entries.map(entry => element('div', 'score-reference-card', element('strong', '', entry.label), scoreReference(entry)))));
+  if (scores.loading) {
+    const progress = element('p', 'subtle score-loading', 'Loading published scores… Saved charts remain available while this runs.');
+    progress.setAttribute('role', 'status');
+    section.append(progress);
+  } else if (scores.message) {
+    const feedback = element('p', 'subtle score-feedback', scores.message);
+    feedback.setAttribute('role', 'status');
+    section.append(feedback);
+  }
   const hasReference = entries.some(entry => scores.links[entry.key]);
   if (hasReference && scores.snapshot) {
     const metrics = (Object.keys(SCORE_METRICS) as ScoreMetric[]).filter(metric => scores.includeComposites || !SCORE_METRICS[metric].composite);
     section.append(element('div', 'score-chart-grid', ...metrics.map(metric => scoreChart(entries, metric, compact))));
     section.append(element('p', 'subtle score-freshness', `Source data as of ${date(scores.snapshot.asOf)} · Saved ${date(scores.snapshot.fetchedAt)}${isStale(scores.snapshot.fetchedAt.slice(0, 10)) ? ' · Snapshot over 14 days old' : ''}.`));
-  } else section.append(element('p', 'subtle score-empty', scores.snapshot
-    ? 'Link a score reference for each model to see its charts. Missing scores are unavailable, never zero.'
-    : 'Connect OpenRouter above to load published scores, then link a reference for each model.'));
+  } else if (!scores.loading) section.append(element('p', 'subtle score-empty', 'Choose “Show score charts” on a model card or “Link score reference” here to automatically load scores and select a reference. Missing scores are unavailable, never zero.'));
   section.append(element('p', 'subtle score-caveat', 'References are user-selected, not verified model matches. Provider, version, reasoning settings, and evaluation setup can differ from your Copilot session. These charts are not measurements of your deployment. Evaluation settings may also differ between references; bar differences do not establish statistical significance.'));
   return section;
 }

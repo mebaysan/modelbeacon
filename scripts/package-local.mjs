@@ -7,7 +7,8 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 
 // shortcut: supports this README's simple Markdown; extend when its authoring format changes.
 export function localReadme(markdown) {
-  let result = markdown.replace(/^[\t ]*!\[[^\]\r\n]*\]\([^()\r\n]+\)[\t ]*(?:\r?\n|$)/gm, '');
+  let result = markdown.replace(/^[\t ]*\[!\[([^\]\r\n]+)\]\([^()\s]+\)\]\(([^()\s]+)\)[\t ]*(\r?)$/gm, '[$1]($2)$3');
+  result = result.replace(/^[\t ]*!\[[^\]\r\n]*\]\([^()\r\n]+\)[\t ]*(?:\r?\n|$)/gm, '');
   if (/!\[|<\/?[a-z][^>]*>/i.test(result)) {
     throw new Error('Local README contains unsupported inline images or HTML. Use standalone Markdown image lines.');
   }

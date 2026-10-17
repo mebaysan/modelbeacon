@@ -12,7 +12,7 @@ Licensed under [Creative Commons Attribution 4.0 International](https://creative
 
 ## OpenRouter Data API — CC BY 4.0
 
-Published scores are fetched on request from the [OpenRouter benchmarks API](https://openrouter.ai/docs/api/api-reference/benchmarks/list-benchmarks), using the user's API key. No live score dataset is bundled in the extension. OpenRouter's [Data API licensing guidance](https://openrouter.ai/docs/cookbook/administration/data-api) licenses the aggregate data returned by these endpoints under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Published scores are fetched from the [OpenRouter benchmarks API](https://openrouter.ai/docs/api/api-reference/benchmarks/list-benchmarks), using the user's API key, when the user connects, chooses **Show score charts**, or requests a refresh. Reference controls also fetch data if no snapshot is cached. No live score dataset is bundled in the extension. OpenRouter's [Data API licensing guidance](https://openrouter.ai/docs/cookbook/administration/data-api) licenses the aggregate data returned by these endpoints under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 The interface preserves the source attribution and API snapshot date alongside displayed scores. Attribution identifies OpenRouter evaluations, or Artificial Analysis via OpenRouter for the optional composite indices. Changes made here: selected supported metrics and fields, validated and cached records locally, associated user-selected reference models, formatted numeric values and units, and visualized results. Missing scores are not generated or estimated.
 

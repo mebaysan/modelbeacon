@@ -95,7 +95,8 @@ strong { font-weight: 600; }
 .score-axis { display: flex; justify-content: space-between; padding-inline: 1%; margin-top: 8px; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .score-source { font-size: 10px; margin-top: 15px; }
 .score-uncertainty { font-size: 10px; margin-top: 7px; }
-.score-caveat, .score-empty { margin-top: 12px; }
+.score-caveat, .score-empty, .score-loading, .score-feedback { margin-top: 12px; }
+.score-feedback { overflow-wrap: anywhere; }
 .score-reference { display: flex; align-items: flex-start; flex-direction: column; gap: 6px; font-size: 11px; overflow-wrap: anywhere; }
 .score-reference > p { margin: 0; max-width: 100%; }
 .score-reference-id { font-family: var(--vscode-editor-font-family, ui-monospace, monospace); font-size: 10px; }

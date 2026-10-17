@@ -71,6 +71,7 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
   const inputs: unknown[] = [];
   const picks: unknown[][] = [];
   const warnings: string[] = [];
+  const subscriptions: { dispose(): void }[] = [];
   const disposable = { dispose() {} };
   const vscode = {
     workspace: {
@@ -115,7 +116,7 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
     options.fetcher ?? (async () => assert.fail('No automatic network requests')),
   );
   await loaded.exports.activate({
-    extensionUri: '/extension', subscriptions: [],
+    extensionUri: '/extension', subscriptions,
     secrets: {
       get: async (key: string) => secrets.get(key),
       store: async (key: string, value: string) => { if (failSecrets) throw new Error('Secret storage unavailable'); await options.beforeSecretStore?.(); secrets.set(key, value); },
@@ -154,6 +155,7 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
     failWrites: (failed = true) => { failWrites = failed; },
     failSecrets: () => { failSecrets = true; },
     close: () => editor.view.dispose(),
+    dispose: () => { for (const subscription of subscriptions) subscription.dispose(); },
   };
 }
 
@@ -567,4 +569,207 @@ test('retrying a failed local-model clear removes runtime links even after they 
   assert.equal(app.saved.has('scoreLinks.v1'), false);
   assert.equal(app.saved.has('localModels.v1'), false);
   assert.ok(app.saved.has('scoreCache.v1'));
+});
+
+test('Show score charts fetches before the reference picker and refreshes an existing reference without picking again', async () => {
+  const calls: string[] = [];
+  const app = await host(async () => [custom], new Map(), true, {
+    ...scoreOptions, secrets: new Map([['openRouterApiKey', 'test-openrouter-secret']]),
+    fetcher: async url => { calls.push(String(url)); return scoreResponse(url); },
+    pick: async items => { assert.equal(calls.length, 2, 'Both score responses arrive before choosing a reference'); return items[0]; },
+  });
+  await app.command('llmBench.refreshModels');
+  assert.equal(calls.length, 0, 'Opening and discovering do not fetch scores');
+  await app.editor().send({ type: 'showScores', key: customScoreKey });
+  assert.equal(app.inputs.length, 0);
+  assert.equal(app.picks.length, 1);
+  assert.equal(app.state().scores.snapshot?.records.length, 2);
+  assert.equal(app.state().scores.links[customScoreKey], 'vendor/public-example-1');
+  await app.editor().send({ type: 'showScores', key: customScoreKey });
+  assert.equal(calls.length, 4, 'A later Show action fetches fresh scores');
+  assert.equal(app.picks.length, 1, 'Existing explicit references are reused');
+  assert.ok(calls.every(url => url.startsWith('https://openrouter.ai/api/v1/benchmarks?source=openrouter&benchmark_type=')));
+  assert.doesNotMatch(JSON.stringify(app.editor().states), /test-openrouter-secret/);
+  assert.doesNotMatch(JSON.stringify([...app.saved.values()]), /test-openrouter-secret/);
+});
+
+test('Show score charts without a key connects once and fetches once, and Link also fetches when data is absent', async () => {
+  for (const type of ['showScores', 'linkScores']) {
+    let calls = 0;
+    const app = await host(async () => [], new Map(), true, {
+      ...scoreOptions, fetcher: async url => { calls++; return scoreResponse(url); },
+    });
+    const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
+    await app.editor().send({ type, key });
+    assert.equal(app.inputs.length, 1);
+    assert.equal(calls, 2, 'Connecting already downloads; the action must not download twice');
+    assert.equal(app.picks.length, 1);
+    assert.equal(app.state().scores.links[key], 'vendor/public-example-1');
+  }
+});
+
+test('Show score charts uses cached scores after failed refresh and preserves the failure message', async () => {
+  let offline = false;
+  let calls = 0;
+  const app = await host(async () => [], new Map(), true, {
+    ...scoreOptions, fetcher: async url => { calls++; if (offline) throw new Error('offline'); return scoreResponse(url); },
+  });
+  await app.command('llmBench.connectScores');
+  const snapshot = app.state().scores.snapshot;
+  offline = true;
+  const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
+  await app.editor().send({ type: 'showScores', key });
+  assert.equal(calls, 3);
+  assert.equal(app.picks.length, 1);
+  assert.deepEqual(app.state().scores.snapshot, snapshot);
+  assert.equal(app.state().scores.links[key], 'vendor/public-example-1');
+  assert.match(app.state().scores.message, /Keeping the previously saved scores/);
+});
+
+test('failed or cancelled Show actions without data never open a reference picker', async () => {
+  for (const outcome of ['cancel', 'offline', 'empty']) {
+    let calls = 0;
+    const app = await host(async () => [], new Map(), true, {
+      ...scoreOptions, input: async () => outcome === 'cancel' ? undefined : 'test-openrouter-secret',
+      fetcher: async () => {
+        calls++;
+        if (outcome === 'offline') throw new Error('offline');
+        return Response.json({ data: [], meta: { as_of: '2026-10-17T00:00:00Z' } });
+      },
+    });
+    const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
+    await app.editor().send({ type: 'showScores', key });
+    assert.equal(app.picks.length, 0);
+    assert.equal(app.inputs.length, 1);
+    assert.equal(calls, outcome === 'cancel' ? 0 : outcome === 'offline' ? 1 : 2);
+    assert.deepEqual(app.state().scores.links, {});
+    assert.equal(app.state().scores.loading, false);
+    if (outcome === 'offline') assert.match(app.state().scores.message, /could not be refreshed/);
+  }
+});
+
+test('duplicate Show clicks share the native key prompt, download and reference picker', async () => {
+  const entered = gate<string>();
+  const prompt = gate<void>();
+  let calls = 0;
+  const app = await host(async () => [], new Map(), true, {
+    ...scoreOptions, input: async () => { prompt.resolve(); return entered.promise; },
+    fetcher: async url => { calls++; return scoreResponse(url); },
+  });
+  const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
+  const first = app.editor().send({ type: 'showScores', key });
+  await prompt.promise;
+  const second = app.editor().send({ type: 'showScores', key });
+  entered.resolve('test-openrouter-secret');
+  await Promise.all([first, second]);
+  assert.equal(app.inputs.length, 1);
+  assert.equal(calls, 2);
+  assert.equal(app.picks.length, 1);
+});
+
+test('Show score charts waits for an already running refresh before asking for a reference', async () => {
+  const fetching = gate<void>();
+  const release = gate<void>();
+  let calls = 0;
+  const app = await host(async () => [], new Map(), true, {
+    ...scoreOptions, secrets: new Map([['openRouterApiKey', 'test-openrouter-secret']]),
+    fetcher: async url => { calls++; fetching.resolve(); await release.promise; return scoreResponse(url); },
+  });
+  const refresh = app.command('llmBench.refreshScores');
+  await fetching.promise;
+  const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
+  const showing = app.editor().send({ type: 'showScores', key });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.picks.length, 0);
+  release.resolve();
+  await Promise.all([refresh, showing]);
+  assert.equal(calls, 2);
+  assert.equal(app.picks.length, 1);
+  assert.equal(app.state().scores.links[key], 'vendor/public-example-1');
+});
+
+test('clearing during a Show key prompt, download or picker cannot restore scores or references', async () => {
+  for (const phase of ['prompt', 'download', 'picker']) {
+    const started = gate<void>();
+    const release = gate<void>();
+    const app = await host(async () => [], new Map(), true, {
+      ...scoreOptions,
+      input: async () => { if (phase === 'prompt') { started.resolve(); await release.promise; } return 'test-openrouter-secret'; },
+      fetcher: async url => { if (phase === 'download') { started.resolve(); await release.promise; } return scoreResponse(url); },
+      pick: async items => { if (phase === 'picker') { started.resolve(); await release.promise; } return items[0]; },
+    });
+    const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
+    const showing = app.editor().send({ type: 'showScores', key });
+    await started.promise;
+    await app.command('llmBench.clearScores');
+    release.resolve();
+    await showing;
+    assert.equal(app.secrets.size, 0);
+    assert.equal(app.saved.has('scoreCache.v1'), false);
+    assert.equal(app.saved.has('scoreLinks.v1'), false);
+    assert.equal(app.state().scores.snapshot, undefined);
+    assert.deepEqual(app.state().scores.links, {});
+    assert.equal(app.picks.length, phase === 'picker' ? 1 : 0);
+  }
+});
+
+test('clearing local models or disposing while Show downloads prevents a stale reference picker', async () => {
+  for (const action of ['clear-local', 'dispose']) {
+    const started = gate<void>();
+    const release = gate<void>();
+    const app = await host(async () => [custom], new Map(), true, {
+      ...scoreOptions, secrets: new Map([['openRouterApiKey', 'test-openrouter-secret']]),
+      fetcher: async url => { started.resolve(); await release.promise; return scoreResponse(url); },
+    });
+    await app.command('llmBench.refreshModels');
+    const showing = app.editor().send({ type: 'showScores', key: customScoreKey });
+    await started.promise;
+    if (action === 'clear-local') {
+      await app.command('llmBench.clearLocalModels');
+      await app.command('llmBench.refreshModels');
+    } else app.dispose();
+    release.resolve();
+    await showing;
+    assert.equal(app.picks.length, 0);
+    assert.equal(app.saved.has('scoreLinks.v1'), false);
+  }
+});
+
+test('clearing in the same turn prevents deferred Show and Connect actions from starting a prompt or fetch', async () => {
+  for (const action of ['show', 'connect']) {
+    const app = await host(async () => [], new Map(), true, scoreOptions);
+    const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
+    const pending = action === 'show' ? app.editor().send({ type: 'showScores', key }) : app.command('llmBench.connectScores');
+    const clearing = app.command('llmBench.clearScores');
+    await Promise.all([pending, clearing]);
+    assert.equal(app.inputs.length, 0);
+    assert.equal(app.picks.length, 0);
+    assert.equal(app.secrets.size, 0);
+    assert.equal(app.state().scores.snapshot, undefined);
+  }
+});
+
+test('unlink takes precedence over a pending Show refresh and cannot be undone when that refresh finishes', async () => {
+  let waitForRefresh = false;
+  const fetching = gate<void>();
+  const release = gate<void>();
+  const app = await host(async () => [], new Map(), true, {
+    ...scoreOptions, fetcher: async url => {
+      if (waitForRefresh) { fetching.resolve(); await release.promise; }
+      return scoreResponse(url);
+    },
+  });
+  const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
+  await app.editor().send({ type: 'showScores', key });
+  assert.equal(app.state().scores.links[key], 'vendor/public-example-1');
+  waitForRefresh = true;
+  const showing = app.editor().send({ type: 'showScores', key });
+  await fetching.promise;
+  await app.editor().send({ type: 'unlinkScores', key });
+  assert.equal(app.state().scores.links[key], undefined);
+  release.resolve();
+  await showing;
+  assert.equal(app.picks.length, 1);
+  assert.equal(app.state().scores.links[key], undefined);
+  assert.equal((app.saved.get('scoreLinks.v1') as Record<string, string>)[key], undefined);
 });

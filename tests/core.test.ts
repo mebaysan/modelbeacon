@@ -257,6 +257,7 @@ test('webview requests allow only known messages with their exact payload', () =
   assert.equal(isWebviewRequest({ type: 'setAutoUpdate', enabled: false }), true);
   assert.equal(isWebviewRequest({ type: 'setCompositeScores', enabled: false }), true);
   assert.equal(isWebviewRequest({ type: 'linkScores', key: '["catalog","test"]' }), true);
+  assert.equal(isWebviewRequest({ type: 'showScores', key: '["catalog","test"]' }), true);
   assert.equal(isWebviewRequest({ type: 'unlinkScores', key: '["catalog","test"]' }), true);
   for (const metric of ['intelligence', 'coding', 'agentic', 'gpqa', 'toolUse']) assert.equal(isWebviewRequest({ type: 'openScoreSource', metric }), true);
   for (const input of [null, [], {}, { type: 'executeCommand' }, { type: 'ready', command: 'bad' },
@@ -264,6 +265,8 @@ test('webview requests allow only known messages with their exact payload', () =
     { type: 'clearLocalModels', sourceId: 'official' },
     { type: 'connectScores', apiKey: 'never-use-webview-for-secrets' },
     { type: 'linkScores', key: 'x'.repeat(1801) }, { type: 'unlinkScores', key: '' },
+    { type: 'showScores', key: '' }, { type: 'showScores', key: 'x'.repeat(1801) },
+    { type: 'showScores', key: '["catalog","test"]', apiKey: 'not-allowed' },
     { type: 'openScoreSource', metric: 'constructor' }, { type: 'setCompositeScores', enabled: 'true' },
     { type: 'openHelp', topic: 'https://example.com' }, { type: 'setAutoUpdate', enabled: 'true' }]) {
     assert.equal(isWebviewRequest(input), false);

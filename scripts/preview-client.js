@@ -17,7 +17,7 @@ const loaded = fetch('/catalog.json').then(response => response.json()).then(cat
   discoveryStatus: 'idle',
   discoveryMessage: 'Explore the public catalog or detect sample models in this preview.',
   autoUpdateCatalog: false,
-  scores: { connected: false, loading: false, message: 'Connect from VS Code to download published scores securely.', includeComposites: false, links: {} },
+  scores: { connected: false, loading: false, message: 'Use “Show score charts” in VS Code to load published scores securely.', includeComposites: false, links: {} },
 }));
 window.acquireVsCodeApi = () => ({
   getState: () => JSON.parse(sessionStorage.getItem('explorer') || 'null'),
@@ -52,14 +52,14 @@ window.acquireVsCodeApi = () => ({
     }
     if (message.type === 'setAutoUpdate') state.autoUpdateCatalog = message.enabled;
     if (message.type === 'setCompositeScores') state.scores.includeComposites = message.enabled;
-    if (message.type === 'connectScores' || message.type === 'refreshScores' || message.type === 'linkScores') {
-      state.scores.message = 'Preview only: use the VS Code extension to connect securely and choose a published reference model.';
+    if (message.type === 'connectScores' || message.type === 'refreshScores' || message.type === 'linkScores' || message.type === 'showScores') {
+      state.scores.message = 'Preview only: use the VS Code extension to load scores securely and choose a published reference model. API keys are entered only in VS Code.';
     }
     if (message.type === 'unlinkScores') delete state.scores.links[message.key];
     if (message.type === 'clearScores') {
       state.scores = { connected: false, loading: false, includeComposites: state.scores.includeComposites, links: {}, message: 'Preview scores and reference links cleared.' };
     }
-    if (['ready', 'detectModels', 'clearLocalModels', 'setAutoUpdate', 'refreshCatalog', 'connectScores', 'refreshScores', 'clearScores', 'linkScores', 'unlinkScores', 'setCompositeScores'].includes(message.type)) {
+    if (['ready', 'detectModels', 'clearLocalModels', 'setAutoUpdate', 'refreshCatalog', 'connectScores', 'refreshScores', 'clearScores', 'linkScores', 'showScores', 'unlinkScores', 'setCompositeScores'].includes(message.type)) {
       window.__setExplorerState(state);
     }
   },

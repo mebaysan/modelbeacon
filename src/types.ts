@@ -138,7 +138,7 @@ export type WebviewRequest =
   | { type: 'openSource'; sourceId: string }
   | { type: 'openHelp'; topic: 'auto' | 'legacy' | 'signin' }
   | { type: 'connectScores' | 'refreshScores' | 'clearScores' }
-  | { type: 'linkScores' | 'unlinkScores'; key: string }
+  | { type: 'showScores' | 'linkScores' | 'unlinkScores'; key: string }
   | { type: 'setCompositeScores'; enabled: boolean }
   | { type: 'openScoreSource'; metric: ScoreMetric }
   | { type: 'setAutoUpdate'; enabled: boolean };

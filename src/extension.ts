@@ -45,6 +45,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let scoreGeneration = 0;
   let clearingScores = false;
   let scoreWrites: Promise<void> = Promise.resolve();
+  let connectingScores: Promise<boolean> | undefined;
+  let refreshingScores: Promise<void> | undefined;
+  const scoreActions = new Map<string, Promise<void>>();
   const state: ExplorerState = {
     catalog: store.catalog,
     catalogOrigin: store.origin,
@@ -77,49 +80,83 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return pending;
   }
 
-  async function connectScores(): Promise<void> {
-    if (clearingScores) return;
+  function connectScores(): Promise<boolean> {
+    if (connectingScores) return connectingScores;
+    if (clearingScores || disposed) return Promise.resolve(false);
     const generation = scoreGeneration;
-    const key = await vscode.window.showInputBox({
-      title: 'Connect OpenRouter Scores', password: true, ignoreFocusOut: true,
-      prompt: 'Enter an OpenRouter API key to download public benchmark scores. It is saved in VS Code secret storage. No inference requests are made.',
-      validateInput: value => !value || value.length > 512 || /\s/.test(value) ? 'Enter a key without spaces (up to 512 characters).' : undefined,
-    });
-    if (!key || key.length > 512 || /\s/.test(key) || generation !== scoreGeneration || disposed) return;
-    try {
-      await writeScores(async () => {
-        if (generation !== scoreGeneration || disposed) return;
-        await context.secrets.store(SCORE_SECRET, key);
-      });
-      if (generation !== scoreGeneration || disposed) return;
-      state.scores.connected = true;
-      await refreshScores();
-    } catch {
-      if (generation !== scoreGeneration || disposed) return;
-      state.scores.message = 'The API key could not be saved in VS Code secret storage. Try connecting again.';
-      sendState();
-    }
+    const pending = Promise.resolve().then(async () => {
+      if (generation !== scoreGeneration || disposed) return false;
+      try {
+        const key = await vscode.window.showInputBox({
+          title: 'Connect OpenRouter Scores', password: true, ignoreFocusOut: true,
+          prompt: 'Enter an OpenRouter API key to download public benchmark scores. It is saved in VS Code secret storage. No inference requests are made.',
+          validateInput: value => !value || value.length > 512 || /\s/.test(value) ? 'Enter a key without spaces (up to 512 characters).' : undefined,
+        });
+        if (!key || key.length > 512 || /\s/.test(key) || generation !== scoreGeneration || disposed) return false;
+        await writeScores(async () => {
+          if (generation !== scoreGeneration || disposed) return;
+          await context.secrets.store(SCORE_SECRET, key);
+        });
+        if (generation !== scoreGeneration || disposed) return false;
+        state.scores.connected = true;
+        await refreshScores();
+        return generation === scoreGeneration && !disposed;
+      } catch {
+        if (generation === scoreGeneration && !disposed) {
+          state.scores.message = 'The API key could not be saved in VS Code secret storage. Try connecting again.';
+          sendState();
+        }
+        return false;
+      }
+    }).finally(() => { if (connectingScores === pending) connectingScores = undefined; });
+    connectingScores = pending;
+    return pending;
   }
 
-  async function refreshScores(): Promise<void> {
-    if (state.scores.loading) return;
+  function refreshScores(): Promise<void> {
+    if (refreshingScores) return refreshingScores;
+    if (clearingScores || disposed) return Promise.resolve();
     const generation = scoreGeneration;
     state.scores.loading = true;
     state.scores.message = 'Downloading published benchmark scores…';
     sendState();
+    const pending = Promise.resolve().then(async () => {
+      if (generation !== scoreGeneration || disposed) return;
+      try {
+        const key = await context.secrets.get(SCORE_SECRET);
+        if (generation !== scoreGeneration || disposed) return;
+        state.scores.connected = !!key;
+        if (!key) { state.scores.message = 'Connect OpenRouter to download published scores.'; return; }
+        await scores.refresh(key, state.scores.includeComposites);
+        if (generation !== scoreGeneration || disposed) return;
+        state.scores.snapshot = scores.snapshot;
+        state.scores.message = scores.message;
+      } catch {
+        if (generation === scoreGeneration) state.scores.message = 'The saved API key could not be read. Try connecting again.';
+      } finally {
+        if (generation === scoreGeneration) { state.scores.loading = false; sendState(); }
+      }
+    }).finally(() => { if (refreshingScores === pending) refreshingScores = undefined; });
+    refreshingScores = pending;
+    return pending;
+  }
+
+  async function requestScores(): Promise<boolean> {
+    if (connectingScores) return connectingScores;
+    if (clearingScores || disposed) return false;
+    const generation = scoreGeneration;
     try {
       const key = await context.secrets.get(SCORE_SECRET);
-      if (generation !== scoreGeneration || disposed) return;
-      state.scores.connected = !!key;
-      if (!key) { state.scores.message = 'Connect OpenRouter to download published scores.'; return; }
-      await scores.refresh(key, state.scores.includeComposites);
-      if (generation !== scoreGeneration || disposed) return;
-      state.scores.snapshot = scores.snapshot;
-      state.scores.message = scores.message;
+      if (generation !== scoreGeneration || disposed) return false;
+      if (!key) return connectScores();
+      await refreshScores();
+      return generation === scoreGeneration && !disposed;
     } catch {
-      if (generation === scoreGeneration) state.scores.message = 'The saved API key could not be read. Try connecting again.';
-    } finally {
-      if (generation === scoreGeneration) { state.scores.loading = false; sendState(); }
+      if (generation === scoreGeneration && !disposed) {
+        state.scores.message = 'The saved API key could not be read. Try connecting again.';
+        sendState();
+      }
+      return false;
     }
   }
 
@@ -127,6 +164,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (clearingScores) return;
     clearingScores = true;
     const generation = ++scoreGeneration;
+    connectingScores = undefined;
+    refreshingScores = undefined;
+    scoreActions.clear();
     state.scores.loading = true;
     state.scores.snapshot = undefined;
     state.scores.links = {};
@@ -156,34 +196,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       || [...state.discovered, ...state.localModels].some(model => JSON.stringify(['runtime', runtimeKey(model)]) === key);
   }
 
-  async function linkScores(key: string, remove = false): Promise<void> {
-    if (clearingScores || !hasScoreEntry(key)) return;
+  function scoreAction(key: string, action: 'show' | 'link' | 'unlink'): Promise<void> {
+    if (clearingScores || disposed || !hasScoreEntry(key)) return Promise.resolve();
+    const existing = scoreActions.get(key);
+    if (existing && action !== 'unlink') return existing;
     const generation = scoreGeneration;
-    let reference: string | undefined;
-    if (!remove) {
-      const choices = new Map((state.scores.snapshot?.records ?? [])
-        .filter(record => state.scores.includeComposites || !SCORE_METRICS[record.metric].composite)
-        .map(record => [record.modelId, { label: record.modelName, description: record.modelId }]));
-      if (!choices.size) { void vscode.window.showInformationMessage('Connect OpenRouter and refresh scores before linking a reference model.'); return; }
-      const selected = await vscode.window.showQuickPick([...choices.values()].sort((a, b) => a.label.localeCompare(b.label)), {
-        title: 'Choose a published reference model', matchOnDescription: true,
-        placeHolder: 'Reference scores do not measure your Copilot or organization deployment.',
+    const localGeneration = discoveryGeneration;
+    const active = (): boolean => scoreActions.get(key) === pending && generation === scoreGeneration && !disposed && hasScoreEntry(key)
+      && (!key.startsWith('["runtime",') || localGeneration === discoveryGeneration);
+    const pending = Promise.resolve().then(async () => {
+      if (!active()) return;
+      if (action !== 'unlink' && (action === 'show' || !state.scores.snapshot?.records.some(record =>
+        state.scores.includeComposites || !SCORE_METRICS[record.metric].composite))) {
+        if (!await requestScores()) return;
+      }
+      if (!active() || (action === 'show' && state.scores.links[key])) return;
+      let reference: string | undefined;
+      if (action !== 'unlink') {
+        const choices = new Map((state.scores.snapshot?.records ?? [])
+          .filter(record => state.scores.includeComposites || !SCORE_METRICS[record.metric].composite)
+          .map(record => [record.modelId, { label: record.modelName, description: record.modelId }]));
+        if (!choices.size) return;
+        const selected = await vscode.window.showQuickPick([...choices.values()].sort((a, b) => a.label.localeCompare(b.label)), {
+          title: 'Choose a published reference model', matchOnDescription: true,
+          placeHolder: 'Reference scores do not measure your Copilot or organization deployment.',
+        });
+        if (!selected) return;
+        reference = selected.description;
+      }
+      if (!active()) return;
+      await writeScores(async () => {
+        if (!active()) return;
+        const links = { ...state.scores.links };
+        if (reference) links[key] = reference;
+        else delete links[key];
+        try {
+          await context.globalState.update(SCORE_LINKS, links);
+          if (active()) state.scores.links = links;
+        } catch { void vscode.window.showWarningMessage('The reference link could not be saved on this device. Please try again.'); }
       });
-      if (!selected) return;
-      reference = selected.description;
-    }
-    if (generation !== scoreGeneration || disposed || !hasScoreEntry(key)) return;
-    await writeScores(async () => {
-      if (generation !== scoreGeneration || disposed || !hasScoreEntry(key)) return;
-      const links = { ...state.scores.links };
-      if (reference) links[key] = reference;
-      else delete links[key];
-      try {
-        await context.globalState.update(SCORE_LINKS, links);
-        if (generation === scoreGeneration) state.scores.links = links;
-      } catch { void vscode.window.showWarningMessage('The reference link could not be saved on this device. Please try again.'); }
-    });
-    sendState();
+      sendState();
+    }).finally(() => { if (scoreActions.get(key) === pending) scoreActions.delete(key); });
+    scoreActions.set(key, pending);
+    return pending;
   }
 
   function sendState(): void {
@@ -258,6 +313,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   async function clearLocalModels(): Promise<void> {
     // Invalidate pending discovery so it cannot restore metadata after the user clears it.
     discoveryGeneration++;
+    for (const key of scoreActions.keys()) if (key.startsWith('["runtime",')) scoreActions.delete(key);
     detecting = undefined;
     hasDetected = false;
     modelsDirty = false;
@@ -326,8 +382,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           case 'connectScores': await connectScores(); break;
           case 'refreshScores': await refreshScores(); break;
           case 'clearScores': await clearScores(); break;
-          case 'linkScores': await linkScores(message.key); break;
-          case 'unlinkScores': await linkScores(message.key, true); break;
+          case 'showScores': await scoreAction(message.key, 'show'); break;
+          case 'linkScores': await scoreAction(message.key, 'link'); break;
+          case 'unlinkScores': await scoreAction(message.key, 'unlink'); break;
           case 'openScoreSource': await openExternal(SCORE_METRICS[message.metric].sourceUrl); break;
           case 'setCompositeScores':
             await vscode.workspace.getConfiguration('llmBench').update('includeCompositeScores', message.enabled, vscode.ConfigurationTarget.Global);

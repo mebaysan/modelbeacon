@@ -1,6 +1,6 @@
 # Developing and releasing ModelBeacon
 
-For the product tour and installation from an existing VSIX, see the [README](../README.md). This guide covers the local workflow, upgrades, architecture, catalog hosting, and release preparation. Version 0.4.1 has not been published to the Marketplace or validated with a user beta.
+For the product tour and installation from an existing VSIX, see the [README](../README.md). This guide covers the local workflow, upgrades, architecture, catalog hosting, and release preparation. Version 0.4.2 has not been published to the Marketplace or validated with a user beta.
 
 ## Local development
 
@@ -81,13 +81,13 @@ See the [privacy policy](../PRIVACY.md) for storage and network behavior. The ex
 
 ### Published score integration
 
-**ModelBeacon: Connect OpenRouter Scores** uses a native password prompt and VS Code SecretStorage, then requests the public score snapshot. **Refresh Model Scores** refreshes it manually. The key never enters webview state, settings, model caches, or the repository. Network requests go only to fixed OpenRouter HTTPS benchmark endpoints; discovered identities and reference choices are not sent. The extension discards OpenRouter pricing fields and keeps GitHub Copilot prices separate.
+**ModelBeacon: Connect OpenRouter Scores** uses a native password prompt and VS Code SecretStorage, then requests the public score snapshot. Every **Show score charts** click also refreshes scores with the saved key, prompting to connect first when needed. **Refresh Model Scores** remains a separate explicit refresh action. The key never enters webview state, settings, model caches, or the repository. Network requests go only to fixed OpenRouter HTTPS benchmark endpoints; discovered identities and reference choices are not sent. The extension discards OpenRouter pricing fields and keeps GitHub Copilot prices separate.
 
-GPQA Diamond and τ-bench Verified Airline are enabled by default. `llmBench.includeCompositeScores` defaults to `false`; enabling it permits Artificial Analysis intelligence, coding, and agentic indices whose methodology can incorporate Terminal-Bench. A setting change does not fetch data; use **Refresh Model Scores** afterward. There is no direct Terminal-Bench integration or scheduled benchmark import.
+GPQA Diamond and τ-bench Verified Airline are enabled by default. `llmBench.includeCompositeScores` defaults to `false`; enabling it permits Artificial Analysis intelligence, coding, and agentic indices whose methodology can incorporate Terminal-Bench. A setting change does not fetch data; use **Show score charts** or **Refresh Model Scores** afterward. There is no direct Terminal-Bench integration or scheduled benchmark import.
 
 The native reference picker links a catalog or discovered model to an identity in the downloaded public scores. All links require a user choice; there is no name-based automatic matching. Store links locally, keep vendor/version distinctions, and present them as reference values rather than proof of the actual provider configuration. **Disconnect and Clear Scores** deletes the key, public-score snapshot, and links while preserving discovered model history and the GitHub catalog.
 
-After scores are downloaded, **Show score charts** on home and explore model cards opens the model's details. For an unlinked model it also opens the native reference picker; for a linked model it reveals the existing charts without changing the saved reference. A successful API connection alone does not establish any model association. Keep this next step visible when scores are cached but no references are linked.
+**Show score charts** is available on home and explore model cards even without a cache. It opens the model's details and refreshes scores, then opens the native reference picker only if the model is unlinked. For a linked model, cached charts remain visible while refreshing and after a failed request; the saved reference does not change. Link/change reference actions also load scores when no snapshot is cached. A successful API connection alone does not establish any model association. Opening the extension, rendering charts, loading a cache, and changing settings never start a score download; there is no background refresh.
 
 Render separate charts per metric with numeric labels, units, source attribution, and snapshot dates. Accuracy percentages and index points must not share a scale or become a combined winner score. Unknown results remain unavailable. Show reported uncertainty only with its actual meaning; standard deviation is not a confidence interval, and missing uncertainty must not be invented. An API snapshot does not guarantee identical evaluation configurations across models or statistical significance.
 

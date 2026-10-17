@@ -2,7 +2,7 @@
   "name": "modelbeacon",
   "displayName": "ModelBeacon",
   "description": "Compare Copilot and custom models with benchmark charts, sourced task guidance, pricing, and local model history.",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "mebaysan",
   "icon": "media/icon.png",
   "galleryBanner": {
@@ -89,7 +89,7 @@
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "description": "Include Artificial Analysis composite intelligence, coding, and agentic indexes from OpenRouter. These indexes may incorporate Terminal-Bench indirectly. Refresh scores after enabling. Disabled by default."
+          "description": "Include Artificial Analysis composite intelligence, coding, and agentic indexes from OpenRouter. These indexes may incorporate Terminal-Bench indirectly. Use Show score charts or Refresh scores to load them. Disabled by default."
         }
       }
     },

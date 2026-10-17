@@ -475,14 +475,42 @@ test('model details retain sourced charts when refresh fails and clearly date th
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
 });
 
-test('saved scores with no links expose a home action that opens details and asks for a reference once', async ({ page }) => {
-  await expect(page.getByRole('button', { name: /^Show score charts for / })).toHaveCount(0);
+test('score chart actions load from a cold start without a separate refresh or connection step', async ({ page }) => {
+  await expect(page.getByRole('button', { name: /^Show score charts for / })).toHaveCount(3);
+  const modelName = await page.locator('.recommendation .model-title').first().innerText();
+  const key = await page.evaluate(name => JSON.stringify(['catalog', window.__explorerState.catalog.models.find(model => model.name === name)!.id]), modelName);
+  await page.evaluate(() => { window.__messages = []; });
+  await page.getByRole('button', { name: `Show score charts for ${modelName}`, exact: true }).click();
+  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'showScores', key }]);
+  const card = page.locator('.browse-card').filter({ has: page.getByRole('heading', { name: modelName, exact: true }) });
+  await expect(card.locator('details')).toHaveAttribute('open', '');
+  await expect(card.getByRole('button', { name: `Link score reference for ${modelName}`, exact: true })).toBeEnabled();
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await expect(page.locator('.score-status')).toContainText('Preview only');
+  await expect(card.locator('.score-feedback')).toContainText('Preview only');
+  await card.getByRole('button', { name: `Link score reference for ${modelName}`, exact: true }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'linkScores', key });
+  await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, message: 'Score loading cancelled. Choose Show score charts to try again.' } }));
+  await expect(card.locator('.score-feedback')).toHaveText('Score loading cancelled. Choose Show score charts to try again.');
+  await expect(card.getByRole('button', { name: `Show score charts for ${modelName}`, exact: true })).toBeEnabled();
+  await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, loading: true } }));
+  await expect(card.locator('.score-loading')).toBeVisible();
+  await expect(card.getByRole('button', { name: `Show score charts for ${modelName}`, exact: true })).toBeDisabled();
+  await expect(card.getByRole('button', { name: `Show score charts for ${modelName}`, exact: true })).toHaveText('Loading scores…');
+  await expect(card.getByRole('button', { name: `Link score reference for ${modelName}`, exact: true })).toBeDisabled();
+  await exampleScores(page);
+  await page.evaluate(key => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, links: { [key]: 'fixture/reference-a' } } }), key);
+  await expect(card.locator('details')).toHaveAttribute('open', '');
+  await expect(card.locator('[data-metric="gpqa"]')).toBeVisible();
+});
+
+test('saved score chart actions reveal details and request fresh scores even when already linked', async ({ page }) => {
   await exampleScores(page);
   await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, links: {} } }));
   const status = page.getByRole('region', { name: 'Published score connection' });
   await expect(status).toContainText('3 saved scores · 2 public references');
   await expect(status).toContainText('No models linked to these scores yet');
-  await expect(status).toContainText('no new download is needed');
+  await expect(status).toContainText('automatically refresh scores');
   await explore(page);
   await page.getByRole('searchbox').fill('An unrelated search');
   await page.getByRole('tab', { name: 'Choose for a task' }).click();
@@ -492,7 +520,7 @@ test('saved scores with no links expose a home action that opens details and ask
   await page.getByRole('button', { name: `Show score charts for ${modelName}`, exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Explore & compare' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('searchbox')).toHaveValue('');
-  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'linkScores', key }]);
+  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'showScores', key }]);
   const card = page.locator('.browse-card').filter({ has: page.getByRole('heading', { name: modelName, exact: true }) });
   await expect(card.locator('details')).toHaveAttribute('open', '');
   await page.evaluate(key => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, links: { [key]: 'fixture/reference-a' } } }), key);
@@ -502,9 +530,15 @@ test('saved scores with no links expose a home action that opens details and ask
   await page.evaluate(() => { window.__messages = []; });
   await card.getByRole('button', { name: `Show score charts for ${modelName}`, exact: true }).click();
   await expect(card.locator('[data-metric="gpqa"]')).toBeVisible();
-  expect(await page.evaluate(() => window.__messages)).toEqual([]);
+  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'showScores', key }]);
   await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, loading: true } }));
   await expect(card.getByRole('button', { name: `Show score charts for ${modelName}`, exact: true })).toBeDisabled();
+  await expect(card.locator('[data-metric="gpqa"]')).toBeVisible();
+  await expect(card.getByRole('button', { name: `Unlink score reference for ${modelName}`, exact: true })).toBeDisabled();
+  await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, loading: false, message: 'Score refresh failed. Saved scores are still available.' } }));
+  await expect(card.getByRole('button', { name: `Unlink score reference for ${modelName}`, exact: true })).toBeEnabled();
+  await expect(card.locator('.score-feedback')).toHaveText('Score refresh failed. Saved scores are still available.');
+  await expect(card.locator('[data-metric="gpqa"]')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
 });
 
@@ -517,7 +551,7 @@ test('custom score chart action preserves availability and uses the exact runtim
   await page.evaluate(() => { window.__messages = []; });
   await page.getByRole('button', { name: 'Show score charts for Private coder (organization, v2)', exact: true }).click();
   const key = JSON.stringify(['runtime', `runtime:${JSON.stringify(['organization', 'private-coder', 'v2'])}`]);
-  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'linkScores', key }]);
+  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'showScores', key }]);
   await expect(page.getByRole('button', { name: 'Detected in VS Code', exact: true })).toHaveAttribute('aria-pressed', 'true');
   const card = page.locator('.unknown-card');
   await expect(card.locator('details')).toHaveAttribute('open', '');
@@ -538,11 +572,13 @@ test('score actions and cache counts honor the selected metric policy', async ({
   const status = page.getByRole('region', { name: 'Published score connection' });
   await expect(status).toContainText('0 saved scores · 0 public references');
   await expect(status).toContainText('No saved scores match the current metric selection');
-  await expect(page.getByRole('button', { name: /^Show score charts for / })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Show score charts for / })).toHaveCount(3);
   await explore(page);
   await page.getByRole('searchbox').fill('GPT-5.6 Sol');
   await page.locator('.browse-card summary').click();
-  await expect(page.locator('.browse-card').getByRole('button', { name: 'Change score reference for GPT-5.6 Sol', exact: true })).toBeDisabled();
+  await expect(page.locator('.browse-card').getByRole('button', { name: 'Change score reference for GPT-5.6 Sol', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Show score charts for GPT-5.6 Sol', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'showScores', key: JSON.stringify(['catalog', 'gpt-5.6-sol']) });
   await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, includeComposites: true } }));
   await expect(status).toContainText('4 saved scores · 2 public references');
   await expect(page.getByRole('button', { name: 'Show score charts for GPT-5.6 Sol', exact: true })).toBeEnabled();

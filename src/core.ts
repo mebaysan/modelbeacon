@@ -231,6 +231,7 @@ export function isWebviewRequest(value: unknown): value is WebviewRequest {
     case 'refreshScores':
     case 'clearScores':
       return keys.length === 1;
+    case 'showScores':
     case 'linkScores':
     case 'unlinkScores':
       return keys.length === 2 && typeof request.key === 'string'

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+- Make Show score charts load scores automatically with the saved OpenRouter key, including before any scores have been downloaded.
+- Open the secure connection prompt when a key is needed, then continue to reference selection and charts without a separate refresh step.
+- Refresh linked model charts on click while preserving cached results during downloads and failures; share concurrent requests.
+- Allow reference selection to load missing scores directly, and update setup instructions and privacy notices for these user-triggered downloads.
+
 ## 0.4.1
 
 - Make downloaded charts discoverable with a Show score charts action on task, catalog, and custom-model cards; guide users through choosing a reference when none is linked.
