@@ -50,7 +50,7 @@ async function exampleScores(page: Page): Promise<void> {
           { modelId: 'fixture/reference-a', modelName: 'Fixture reference A', metric: 'intelligence', value: 85.2 },
           { modelId: 'fixture/reference-a', modelName: 'Fixture reference A', metric: 'coding', value: 125.4 },
           { modelId: 'fixture/reference-a', modelName: 'Fixture reference A', metric: 'agentic', value: 72.4 },
-          { modelId: 'fixture/reference-b', modelName: 'Fixture reference B', metric: 'gpqa', value: 80.5, standardDeviation: 2.5, sampleSize: 64, evaluatedAt: '2020-01-01', asOf: '2020-01-02', citation: 'Synthetic citation <img src=x onerror=alert(1)>' },
+          { modelId: 'fixture/reference-b', modelName: 'Fixture reference B', metric: 'gpqa', value: 80.5, standardDeviation: 2.5, sampleSize: 64, evaluatedAt: '2020-01-01', asOf: '2020-01-02', citation: 'Synthetic citation <img src=x onerror=alert(1)>', source: 'Synthetic source <img src=x onerror=alert(1)>', sourceUrl: 'https://example.com/synthetic-evaluation', sourceVersion: '<script>syntheticVersion</script>' },
           { modelId: 'fixture/reference-b', modelName: 'Fixture reference B', metric: 'intelligence', value: 88.4 },
         ],
       },
@@ -446,7 +446,7 @@ test('home availability filter excludes cached models, includes custom models, a
   await expect(page.getByRole('button', { name: 'Detected in VS Code', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.browse-card')).toHaveCount(1);
   await expect(page.locator('.unknown-card')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Public catalog + local', exact: true }).click();
+  await page.getByRole('button', { name: 'All catalogs + local', exact: true }).click();
   await page.getByRole('tab', { name: 'Choose for a task' }).click();
   await expect(page.getByRole('checkbox', { name: 'Available models only', exact: true })).not.toBeChecked();
   await expect(page.locator('.recommendation')).toHaveCount(3);
@@ -539,6 +539,42 @@ test('score charts compare each metric independently and distinguish missing val
   await expect(evidence).toContainText('Source data as of');
   await gpqa.getByRole('button', { name: /methodology/ }).click();
   expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'openScoreSource', metric: 'gpqa' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
+});
+
+test('score attribution preserves upstream text and offers safe host links in comparisons and details', async ({ page }) => {
+  await exampleScores(page);
+  await chooseModels(page, ['GPT-5.6 Sol', 'GPT-5.6 Terra']);
+  const comparison = page.locator('.comparison-section > .score-evidence');
+  const oldRecord = comparison.locator('[data-metric="gpqa"] .score-chart-row').first();
+  await expect(oldRecord.locator('.score-number')).toHaveText('0.0%');
+  await expect(oldRecord.locator('.score-record-source')).toHaveCount(0);
+  await comparison.locator('[data-metric="gpqa"]').getByRole('button', { name: /methodology/ }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'openScoreSource', metric: 'gpqa' });
+
+  await page.getByRole('searchbox').fill('GPT-5.6 Terra');
+  const card = page.locator('.browse-card');
+  await card.locator('summary').click();
+  for (const evidence of [comparison, card.locator('.score-evidence')]) {
+    const metadata = evidence.locator('.score-record-source');
+    await expect(metadata).toHaveText('Source: Synthetic source <img src=x onerror=alert(1)> ↗ · Source API version: <script>syntheticVersion</script>');
+    await expect(evidence).toContainText('Source citation: Synthetic citation <img src=x onerror=alert(1)>');
+    await expect(evidence.locator('img, script, a[href]')).toHaveCount(0);
+    await metadata.getByRole('button').click();
+    expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'openScoreSource', metric: 'gpqa', modelId: 'fixture/reference-b' });
+    await evidence.getByRole('button', { name: 'CC BY 4.0 license ↗', exact: true }).click();
+    expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'openScoreInfo', topic: 'license' });
+    await evidence.getByRole('button', { name: 'Attribution guidance ↗', exact: true }).click();
+    expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'openScoreInfo', topic: 'attribution' });
+    await expect(evidence.locator('.score-attribution')).toContainText('Values selected, formatted, and charted by ModelBeacon; no endorsement implied.');
+  }
+  await page.evaluate(() => {
+    const state = window.__explorerState;
+    delete state.scores.snapshot!.records.find(record => record.modelId === 'fixture/reference-b' && record.metric === 'gpqa')!.sourceUrl;
+    window.__setExplorerState(state);
+  });
+  await expect(comparison.locator('.score-record-source')).toContainText('Synthetic source <img src=x onerror=alert(1)>');
+  await expect(comparison.locator('.score-record-source button')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
 });
 
@@ -723,4 +759,92 @@ test('score actions and cache counts honor the selected metric policy', async ({
   await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, includeComposites: true } }));
   await expect(status).toContainText('4 saved scores · 2 public references');
   await expect(page.getByRole('button', { name: 'Show score charts for GPT-5.6 Sol', exact: true })).toBeEnabled();
+});
+
+test('home catalog controls append URL and file models without replacing built-in models', async ({ page }) => {
+  const catalogs = page.getByRole('region', { name: 'Your catalogs', exact: true });
+  await expect(catalogs).toContainText('No extra catalogs added');
+  await catalogs.getByRole('button', { name: 'Add catalog URL', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'addCatalogUrl' });
+  await expect(catalogs).toContainText('Example team catalog');
+  await expect(catalogs).toContainText('1 of 2 models appended · 1 conflicting model skipped');
+  await catalogs.getByRole('button', { name: 'Import JSON file', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'importCatalogFile' });
+  await expect(catalogs.locator('.extra-catalog')).toHaveCount(2);
+  await catalogs.getByRole('button', { name: 'Refresh added catalogs', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'refreshExtraCatalogs' });
+  await expect(catalogs.getByRole('status')).toContainText('retains the last valid data');
+  await explore(page);
+  await expect(page.locator('.browse-card')).toHaveCount(33);
+  await page.getByRole('searchbox').fill('Example');
+  await expect(page.locator('.browse-card')).toHaveCount(2);
+  await expect(page.locator('.browse-card').first()).toContainText('Appended catalog');
+  await expect(page.locator('.browse-card').first()).toContainText('Catalog: Example team catalog');
+  await page.locator('.browse-card').first().locator('summary').click();
+  await expect(page.locator('.browse-card').first()).toContainText('Published token rates');
+  await expect(page.locator('.browse-card').first()).not.toContainText('GitHub pricing');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
+});
+
+test('removing an added catalog prunes its comparison selection and retains built-in selections', async ({ page }) => {
+  await page.getByRole('button', { name: 'Add catalog URL', exact: true }).click();
+  await chooseModels(page, ['GPT-5.6 Sol', 'Example Team Coder']);
+  const provenance = page.locator('.comparison-table').getByRole('row', { name: /^Catalog / });
+  await expect(provenance).toContainText('Built-in catalog');
+  await expect(provenance).toContainText('Example team catalog');
+  const guidance = page.locator('.comparison-table').getByRole('row', { name: /^Everyday coding guidance/ });
+  await expect(guidance).toContainText('Reviewed Oct 1, 2026');
+  await page.getByRole('button', { name: 'Remove catalog Example team catalog', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'removeExtraCatalog', id: '11111111-1111-4111-8111-111111111111' });
+  await expect(page.locator('.comparison-table thead th')).toHaveCount(2);
+  await expect(page.locator('.comparison-table')).not.toContainText('Example Team Coder');
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem('explorer')!).selected)).toEqual([JSON.stringify(['catalog', 'gpt-5.6-sol'])]);
+  await page.getByRole('searchbox').fill('');
+  await expect(page.locator('.browse-card')).toHaveCount(31);
+  await expect(page.getByRole('region', { name: 'Your catalogs', exact: true })).toContainText('No extra catalogs added');
+});
+
+test('added catalog labels and errors stay text and failures retain existing model cards', async ({ page }) => {
+  await page.getByRole('button', { name: 'Import JSON file', exact: true }).click();
+  await page.evaluate(() => {
+    const state = window.__explorerState;
+    const label = '<img src=x onerror=alert(1)>';
+    state.extraCatalogs[0].label = label;
+    state.extraCatalogs[0].message = 'Refresh failed <script>alert(1)</script>. Saved catalog retained.';
+    state.extraCatalogsMessage = 'No catalog changes were applied.';
+    state.catalog.models.find(model => model.id === 'example-extra-file')!.catalogLabel = label;
+    window.__setExplorerState(state);
+  });
+  const catalogs = page.getByRole('region', { name: 'Your catalogs', exact: true });
+  await expect(catalogs).toContainText('<img src=x onerror=alert(1)>');
+  await expect(catalogs).toContainText('Refresh failed <script>alert(1)</script>');
+  await expect(catalogs.locator('img, script')).toHaveCount(0);
+  await explore(page);
+  await page.getByRole('searchbox').fill('Example File Coder');
+  await expect(page.locator('.browse-card')).toContainText('Catalog: <img src=x onerror=alert(1)>');
+  await expect(page.locator('.browse-card img')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
+});
+
+test('automatic fact and pricing sync dates never relabel the guidance review date', async ({ page }) => {
+  await page.evaluate(() => {
+    const state = window.__explorerState;
+    state.catalog.schemaVersion = 2;
+    state.catalog.reviewedAt = '2020-01-01';
+    state.catalog.syncedAt = '2026-10-18';
+    const pricing = state.catalog.models.find(model => model.name === 'GPT-5.6 Terra')!.pricing!;
+    delete pricing.reviewedAt;
+    pricing.syncedAt = '2026-10-18';
+    window.__setExplorerState(state);
+  });
+  await expect(page.getByRole('region', { name: 'Catalog status', exact: true })).toContainText('Guidance reviewed Jan 1, 2020');
+  await expect(page.getByRole('region', { name: 'Catalog status', exact: true })).toContainText('Facts synced Oct 18, 2026');
+  await expect(page.getByRole('region', { name: 'Catalog status', exact: true })).toContainText('more than 14 days');
+  await chooseModels(page, ['GPT-5.6 Terra']);
+  const pricing = page.locator('.comparison-table').getByRole('row', { name: /^Published token pricing/ });
+  await expect(pricing).toContainText('Synced Oct 18, 2026');
+  await expect(pricing).not.toContainText('Reviewed');
+  await expect(page.locator('.comparison-table').getByRole('row', { name: /^Everyday coding guidance/ })).toContainText('Reviewed Jan 1, 2020');
+  await page.locator('.browse-card summary').click();
+  await expect(page.locator('.browse-card .price-content')).toContainText('Synced Oct 18, 2026');
 });

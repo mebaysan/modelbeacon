@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       catalog_url:
-        description: Optional deployed HTTPS URL ending in /catalog/v1.json
+        description: Optional HTTPS catalog URL (defaults to the public /catalog/v2.json feed)
         required: false
         type: string
 permissions:
@@ -12,7 +12,7 @@ jobs:
   package:
     runs-on: ubuntu-latest
     env:
-      LLMBENCH_CATALOG_URL: ${{ inputs.catalog_url }}
+      LLMBENCH_CATALOG_URL: ${{ inputs.catalog_url || vars.LLMBENCH_CATALOG_URL || 'https://mebaysan.github.io/modelbeacon/catalog/v2.json' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

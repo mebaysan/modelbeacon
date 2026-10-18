@@ -30,12 +30,15 @@ export interface CatalogModel {
   id: string;
   name: string;
   provider: string;
+  catalogLabel?: string;
+  catalogReviewedAt?: string;
   aliases: { id: string; version?: string }[];
   facts: { text: string; sourceId: string }[];
   guidance: Guidance[];
   pricing?: {
     sourceId: string;
-    reviewedAt: string;
+    reviewedAt?: string;
+    syncedAt?: string;
     validThrough?: string;
     tiers: PriceTier[];
   };
@@ -61,12 +64,26 @@ export interface BenchmarkObservation {
 }
 
 export interface Catalog {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   revision: string;
   reviewedAt: string;
+  syncedAt?: string;
   sources: Source[];
   models: CatalogModel[];
   benchmarks: BenchmarkObservation[];
+}
+
+export interface ExtraCatalogSummary {
+  id: string;
+  label: string;
+  kind: 'url' | 'file';
+  modelCount: number;
+  addedModelCount: number;
+  ignoredModelCount: number;
+  revision: string;
+  reviewedAt: string;
+  syncedAt?: string;
+  message: string;
 }
 
 export interface DiscoveredModel {
@@ -93,6 +110,9 @@ export interface ModelScore {
   value: number;
   asOf?: string;
   citation?: string;
+  source?: string;
+  sourceUrl?: string;
+  sourceVersion?: string;
   evaluatedAt?: string;
   sampleSize?: number;
   standardDeviation?: number;
@@ -120,6 +140,8 @@ export interface ExplorerState {
   catalogOrigin: 'bundled' | 'cached' | 'online';
   catalogMessage: string;
   catalogLoading: boolean;
+  extraCatalogs: ExtraCatalogSummary[];
+  extraCatalogsMessage: string;
   discovered: DiscoveredModel[];
   localModels: LocalModel[];
   localModelsMessage: string;
@@ -134,6 +156,8 @@ export type WebviewRequest =
   | { type: 'detectModels' }
   | { type: 'clearLocalModels' }
   | { type: 'refreshCatalog' }
+  | { type: 'addCatalogUrl' | 'importCatalogFile' | 'refreshExtraCatalogs' }
+  | { type: 'removeExtraCatalog'; id: string }
   | { type: 'openPicker' }
   | { type: 'openSource'; sourceId: string }
   | { type: 'openHelp'; topic: 'auto' | 'legacy' | 'signin' }
@@ -141,7 +165,8 @@ export type WebviewRequest =
   | { type: 'showScores' | 'linkScores' | 'unlinkScores'; key: string }
   | { type: 'compareScores'; keys: string[] }
   | { type: 'setCompositeScores'; enabled: boolean }
-  | { type: 'openScoreSource'; metric: ScoreMetric }
+  | { type: 'openScoreSource'; metric: ScoreMetric; modelId?: string }
+  | { type: 'openScoreInfo'; topic: 'license' | 'attribution' }
   | { type: 'setAutoUpdate'; enabled: boolean };
 
 export type HostMessage = { type: 'state'; state: ExplorerState };

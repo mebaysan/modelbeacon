@@ -1,6 +1,20 @@
-name: Publish reviewed catalog
+name: Sync and publish catalog
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '23 6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - data/catalog.json
+      - data/licenses/**
+      - scripts/catalog-sync.mts
+      - src/core.ts
+      - src/types.ts
+      - package.json
+      - package-lock.json
+      - THIRD_PARTY_NOTICES.md
+      - .github/workflows/catalog-publish.yml
 permissions:
   contents: read
   pages: write
@@ -10,24 +24,37 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
+    if: github.repository == 'mebaysan/modelbeacon' && github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run check
+      - run: node --experimental-strip-types --test tests/catalog-sync.test.ts
       - run: npm run catalog:check
+      - uses: actions/configure-pages@v5
+        id: pages
+      - name: Synchronize official GitHub facts against the last deployed revision
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CATALOG_BASE_URL: ${{ steps.pages.outputs.base_url }}
+        run: npm run catalog:sync -- artifacts/site/catalog/v2.json "${CATALOG_BASE_URL%/}/catalog/v2.json"
+      - run: npm run catalog:check -- artifacts/site/catalog/v2.json
       - run: |
           mkdir -p artifacts/site/catalog artifacts/site/licenses
           cp data/catalog.json artifacts/site/catalog/v1.json
           cp data/licenses/* artifacts/site/licenses/
           cp THIRD_PARTY_NOTICES.md artifacts/site/THIRD_PARTY_NOTICES.md
-      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: artifacts/site

@@ -31,6 +31,23 @@ test('unpublished builds stay fully offline', async () => {
   assert.match(store.message, /local build/);
 });
 
+test('schema 2 sync dates advance a feed without changing its human review date', async () => {
+  const synced = { ...catalog, schemaVersion: 2, revision: '2026-10-17.1', syncedAt: '2026-10-17' };
+  const disk = storage();
+  let next = synced;
+  const store = new CatalogStore(catalog, disk, URL, async () => response(next), () => NOW);
+  await store.refresh(true);
+  assert.equal(store.catalog.reviewedAt, '2026-10-16');
+  assert.equal(store.catalog.syncedAt, '2026-10-17');
+  assert.equal(store.origin, 'online');
+  next = { ...synced, revision: '2099-01-01.1', syncedAt: '2099-01-01' };
+  await store.refresh(true);
+  assert.equal(store.catalog.syncedAt, '2026-10-17');
+  assert.match(store.message, /future review or sync date/);
+  const restored = new CatalogStore(catalog, disk, URL, async () => assert.fail('Restore must stay offline'), () => NOW);
+  assert.equal(restored.catalog.revision, '2026-10-17.1');
+});
+
 test('valid download persists and daily checks throttle, manual refresh revalidates with ETag', async () => {
   const disk = storage();
   const calls: RequestInit[] = [];
@@ -82,7 +99,7 @@ test('network, parse, schema, rollback and future-date failures preserve usable 
   const fetchers: typeof fetch[] = [
     async () => { throw new Error('offline'); },
     async () => new Response('not json'),
-    async () => response({ ...catalog, schemaVersion: 2 }),
+    async () => response({ ...catalog, schemaVersion: 3 }),
     async () => response({ ...catalog, reviewedAt: '2025-01-01', revision: '2025-01-01.1' }),
     async () => response({ ...catalog, reviewedAt: '2099-01-01', revision: '2099-01-01.1' }),
     async () => new Response('unavailable', { status: 503 }),

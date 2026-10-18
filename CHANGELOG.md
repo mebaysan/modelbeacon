@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
+- Add score license and attribution links to comparison and model details, preserving supplied source metadata while keeping existing score caches readable.
+- Identify the publisher, privacy contact, policy update date, and default catalog hosting provider in the privacy policy.
+- Automatically synchronize public model facts and prices from GitHub's official documentation, publishing a versioned catalog feed daily and on demand.
+- Keep automated sync dates separate from human guidance review dates, and retain the previous catalog when validation or downloads fail.
+- Append up to ten user catalogs from HTTPS URLs or JSON files, stored locally with source labels and conflict counts. Built-in models and earlier catalogs take precedence.
+- Refresh URL catalogs automatically, compare added models alongside built-in models, and remove catalog snapshots and orphaned comparison/reference selections.
 - Automatically create a tagged GitHub Release, attach the VSIX, and publish it to Marketplace when a stable version increase reaches `main`.
 - Reuse existing release packages on retries and reject tags that point to a different commit.
 

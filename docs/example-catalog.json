@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "revision": "2026-10-18.1",
+  "reviewedAt": "2026-10-18",
+  "sources": [
+    {
+      "id": "example-source",
+      "title": "Fictional catalog example — replace with your source",
+      "url": "https://example.com/model-catalog",
+      "license": "MIT (this example only)",
+      "licenseUrl": "https://github.com/mebaysan/modelbeacon/blob/main/LICENSE",
+      "retrievedAt": "2026-10-18"
+    }
+  ],
+  "models": [
+    {
+      "id": "example-team-coder",
+      "name": "Example Team Coder (fictional)",
+      "provider": "Example organization",
+      "aliases": [],
+      "facts": [
+        {
+          "text": "Fictional model demonstrating the catalog format. Replace this entry with sourced facts about your model.",
+          "sourceId": "example-source"
+        }
+      ],
+      "guidance": []
+    }
+  ],
+  "benchmarks": []
+}

@@ -11,6 +11,8 @@ const loaded = fetch('/catalog.json').then(response => response.json()).then(cat
   catalogOrigin: 'bundled',
   catalogMessage: 'Development preview. Detection uses fixtures, not your Copilot account.',
   catalogLoading: false,
+  extraCatalogs: [],
+  extraCatalogsMessage: '',
   discovered: [],
   localModels: JSON.parse(sessionStorage.getItem('explorer-local-models') || '[]'),
   localModelsMessage: '',
@@ -51,6 +53,26 @@ window.acquireVsCodeApi = () => ({
       state.localModelsMessage = 'Local model history cleared.';
     }
     if (message.type === 'setAutoUpdate') state.autoUpdateCatalog = message.enabled;
+    if (message.type === 'addCatalogUrl' || message.type === 'importCatalogFile') {
+      const kind = message.type === 'addCatalogUrl' ? 'url' : 'file';
+      const id = kind === 'url' ? '11111111-1111-4111-8111-111111111111' : '22222222-2222-4222-8222-222222222222';
+      if (!state.extraCatalogs.some(catalog => catalog.id === id)) {
+        const label = kind === 'url' ? 'Example team catalog' : 'Example imported catalog';
+        const reviewedAt = '2026-10-01';
+        state.extraCatalogs.push({ id, label, kind, modelCount: 2, addedModelCount: 1, ignoredModelCount: 1, revision: '2026-10-18.1', reviewedAt, syncedAt: '2026-10-18', message: 'Preview fixture: one conflicting model was skipped.' });
+        state.catalog.models.push({ ...state.catalog.models.find(model => model.guidance.some(guidance => guidance.task === 'everyday')), id: `example-extra-${kind}`, name: kind === 'url' ? 'Example Team Coder' : 'Example File Coder', provider: 'Example provider', aliases: [], catalogLabel: label, catalogReviewedAt: reviewedAt });
+      }
+      state.extraCatalogsMessage = 'Preview fixtures only. VS Code opens the URL input or JSON file picker and saves your added catalog locally.';
+    }
+    if (message.type === 'removeExtraCatalog') {
+      const catalog = state.extraCatalogs.find(catalog => catalog.id === message.id);
+      if (catalog) {
+        state.catalog.models = state.catalog.models.filter(model => model.catalogLabel !== catalog.label);
+        state.extraCatalogs = state.extraCatalogs.filter(catalog => catalog.id !== message.id);
+        state.extraCatalogsMessage = 'Preview catalog removed. The built-in catalog is unchanged.';
+      }
+    }
+    if (message.type === 'refreshExtraCatalogs') state.extraCatalogsMessage = 'Preview only. VS Code refreshes your saved catalog sources and retains the last valid data if a refresh fails.';
     if (message.type === 'setCompositeScores') state.scores.includeComposites = message.enabled;
     if (message.type === 'connectScores' || message.type === 'refreshScores' || message.type === 'linkScores' || message.type === 'showScores' || message.type === 'compareScores') {
       state.scores.message = 'Preview only: use the VS Code extension to load matching published scores automatically. API keys are entered only in VS Code.';
@@ -59,7 +81,7 @@ window.acquireVsCodeApi = () => ({
     if (message.type === 'clearScores') {
       state.scores = { connected: false, loading: false, includeComposites: state.scores.includeComposites, links: {}, message: 'Preview scores and reference links cleared.' };
     }
-    if (['ready', 'detectModels', 'clearLocalModels', 'setAutoUpdate', 'refreshCatalog', 'connectScores', 'refreshScores', 'clearScores', 'linkScores', 'showScores', 'compareScores', 'unlinkScores', 'setCompositeScores'].includes(message.type)) {
+    if (['ready', 'detectModels', 'clearLocalModels', 'setAutoUpdate', 'refreshCatalog', 'addCatalogUrl', 'importCatalogFile', 'removeExtraCatalog', 'refreshExtraCatalogs', 'connectScores', 'refreshScores', 'clearScores', 'linkScores', 'showScores', 'compareScores', 'unlinkScores', 'setCompositeScores'].includes(message.type)) {
       window.__setExplorerState(state);
     }
   },

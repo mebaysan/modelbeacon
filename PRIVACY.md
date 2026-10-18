@@ -1,6 +1,10 @@
 # Privacy
 
-ModelBeacon does not collect analytics or send inference requests. It does not read workspace files, code, prompts, chat histories, account balances, credentials from installed model providers, or Copilot's internal databases. The optional published-score connection uses an OpenRouter API key that you explicitly provide.
+**Last updated: October 18, 2026.**
+
+ModelBeacon is published by **Muhammed Enes Baysan**, under the publisher name **mebaysan**. The publisher's website is [mebaysan.com](https://mebaysan.com). For privacy questions, contact [mail@mebaysan.com](mailto:mail@mebaysan.com), also listed on the publisher's [public GitHub profile](https://github.com/mebaysan). General support and bug reports can be submitted to the [public ModelBeacon issue tracker](https://github.com/mebaysan/modelbeacon/issues).
+
+ModelBeacon does not collect analytics or send inference requests. It does not scan workspace files or read code, prompts, chat histories, account balances, credentials from installed model providers, or Copilot's internal databases. Importing a catalog reads the JSON file you explicitly select through VS Code's file picker. The optional published-score connection uses an OpenRouter API key that you explicitly provide.
 
 When you request detection, the extension calls `vscode.lm.selectChatModels()` without a provider filter. It reads metadata for exposed Copilot, organization, BYOK/custom, and other installed-provider models. It cannot guarantee that these results match any provider's picker. VS Code and the providers handle authentication or provider requests under their own policies. This extension does not send prompts or use models to perform measurements.
 
@@ -8,9 +12,21 @@ Detection saves only model `id`, `name`, `vendor`, `family`, `version`, `maxInpu
 
 Saved model metadata survives restarts and offline use and is labeled with its last-seen time, not treated as current availability. Loading the cache does not contact providers. Automatic discovery refresh is enabled only after explicit detection during the current session. **Clear Local Models** removes all saved model metadata, current discovery results, and score reference links that contain runtime identities while keeping the public catalog; the next explicit detection can populate the model cache again.
 
-Published builds may download the reviewed catalog over HTTPS. Automatic checks happen only when the explorer is opened and at most once daily. The hosting provider can receive normal HTTP metadata such as your IP address, request time, and cached ETag. The request does not include model identities, workspace content, account details, or an analytics identifier. Disable automatic checks in `llmBench.autoUpdateCatalog`. Manual refresh explicitly requests an update. Local builds without a catalog URL make no catalog requests.
+The release workflows configure **GitHub Pages, provided by GitHub**, as the default public catalog host, using the [ModelBeacon catalog feed](https://mebaysan.github.io/modelbeacon/catalog/v2.json) maintained in the [mebaysan/modelbeacon repository](https://github.com/mebaysan/modelbeacon). GitHub handles requests under its [privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement). A build can override this address through `LLMBENCH_CATALOG_URL`; in that case, the configured HTTPS host receives catalog requests and its privacy policy applies. Local builds without a public feed URL make no public-feed requests. Explicitly added URL catalogs have their own requests as described below.
+
+The public catalog's factual updates are generated from GitHub's official documentation; human guidance review dates remain separate. Automatic checks happen only when the explorer is opened and at most once daily. The hosting provider can receive normal HTTP metadata such as your IP address, request time, and cached ETag. The request does not include model identities, workspace content, account details, or an analytics identifier. Disable automatic checks in `llmBench.autoUpdateCatalog`. Manual refresh explicitly requests an update.
 
 The last validated public catalog, its ETag, and last request time also use local extension global state. Search, task, and comparison selections are saved in the webview's local state. These caches are not configured for Settings Sync. The automatic-update preference is a VS Code user setting and may be synchronized according to your VS Code configuration.
+
+## Catalogs you add
+
+**Add catalog URL** downloads the HTTPS URL you enter. The complete URL, catalog snapshot, ETag, and request time are saved in local extension global state. The interface displays only the hostname as the label. Avoid URLs containing tokens or other secrets in their path or query: those values are part of the saved URL and are sent to its host. URLs with embedded username/password credentials are rejected. Downloads do not send authentication headers, browser cookies, the OpenRouter key, model identities, or workspace content, and redirects are not followed. The selected host receives ordinary HTTP metadata and applies its own privacy policy.
+
+Added URL catalogs refresh with automatic catalog checks at most once daily when the explorer opens, if `llmBench.autoUpdateCatalog` is enabled. **Refresh added catalogs** and **Refresh Catalog** explicitly check them. Failed updates retain the last valid snapshot. There is no background timer or upload of imported data.
+
+**Import JSON file** reads only the selected file and saves its validated catalog contents and filename locally. The full file path is not retained. It is a snapshot: the extension does not watch or reread the file. Remove and import again to pick up edits. Neither file contents nor imported model identities are uploaded to GitHub, OpenRouter, or this repository.
+
+At most ten added catalogs of 2 MiB each are retained. Their data is not registered for Settings Sync. **Remove** deletes the selected snapshot and its saved URL, removes its model selections, and deletes manual score references for model IDs that no longer exist in the combined catalog. It preserves other catalogs, detected model history, the OpenRouter key, and the public score snapshot. If local storage cannot save a removal, the interface reports the failure and that catalog may return after restart.
 
 ## Optional published scores
 
@@ -20,7 +36,7 @@ Connecting downloads scores. **Add to compare**, **View comparison**, and **Show
 
 These requests download public benchmark data and authenticate with the supplied key. OpenRouter receives that credential and ordinary request metadata such as your IP address and request time. Requests do not contain workspace content, prompts, discovered/custom model names or IDs, or your local reference choices. OpenRouter applies its own [privacy policy](https://openrouter.ai/privacy) and API access policies.
 
-The validated public score snapshot, source attribution and dates, retrieval time, and your explicit model-to-reference choices are stored in local extension global state and are not registered for Settings Sync. Automatic references are derived from cached records without saving extra model links. Manual references can include local custom model identities; they are not written into the public catalog or repository. Cached data remains usable offline and stays visible while a refresh is pending. Failed refreshes preserve the last valid snapshot. Chart rendering itself uses this data locally; the download is triggered by the actions described above.
+The validated public score snapshot, available source metadata (including citations, source names, URLs, versions, and dates), retrieval time, and your explicit model-to-reference choices are stored in local extension global state and are not registered for Settings Sync. Automatic references are derived from cached records without saving extra model links. Manual references can include local custom model identities; they are not written into the public catalog or repository. Cached data remains usable offline and stays visible while a refresh is pending. Failed refreshes preserve the last valid snapshot. Chart rendering itself uses this data locally; the download is triggered by the actions described above.
 
 Composite indices are disabled by default. Enabling `llmBench.includeCompositeScores` permits scores whose methodology can include Terminal-Bench; it does not enable inference or a direct Terminal-Bench import. This is an application setting, separate from the local score cache and reference choices. There is no background score collection.
 

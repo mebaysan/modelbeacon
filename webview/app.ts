@@ -113,9 +113,9 @@ function comparisonEntries(): ComparisonEntry[] {
   return view.selected.flatMap(key => entries.filter(entry => entry.key === key));
 }
 
-function availability(entries: RuntimeEntry[]): HTMLElement {
+function availability(entries: RuntimeEntry[], model?: CatalogModel): HTMLElement {
   const detected = entries.some(entry => entry.detected);
-  return badge(detected ? 'Detected in VS Code' : entries.length ? 'Remembered locally' : 'Listed by GitHub', detected ? 'positive' : '');
+  return badge(detected ? 'Detected in VS Code' : entries.length ? 'Remembered locally' : model?.catalogLabel ? 'Appended catalog' : 'Listed by GitHub', detected ? 'positive' : '');
 }
 
 function toggleModel(modelId: string): void {
@@ -195,17 +195,48 @@ function catalogStatus(): HTMLElement {
   const refresh = button(current.catalogLoading ? 'Checking…' : 'Refresh catalog', 'text-button', () => send({ type: 'refreshCatalog' }), 'refresh-catalog');
   refresh.disabled = current.catalogLoading;
   const status = element('div', 'catalog-status',
-    element('div', 'status-meta', element('span', 'status-dot'), element('span', '', origin), element('span', 'divider', '·'), element('span', '', `Reviewed ${date(current.catalog.reviewedAt)}`)), refresh,
+    element('div', 'status-meta', element('span', 'status-dot'), element('span', '', origin), element('span', 'divider', '·'), element('span', '', `Guidance reviewed ${date(current.catalog.reviewedAt)}`), current.catalog.syncedAt ? element('span', '', `· Facts synced ${date(current.catalog.syncedAt)}`) : undefined), refresh,
   );
   const container = element('section', 'catalog-summary', status);
   container.setAttribute('aria-label', 'Catalog status');
-  if (isStale(current.catalog.reviewedAt)) container.append(element('p', 'notice warning', 'This catalog has not been reviewed in more than 14 days. Check source pages for current availability and prices.'));
+  if (isStale(current.catalog.reviewedAt)) container.append(element('p', 'notice warning', 'Curated guidance has not been reviewed in more than 14 days. Automatically synchronized facts have a separate sync date; check sources for restrictions.'));
   if (current.catalogMessage) {
     const message = element('p', 'catalog-message', current.catalogMessage);
     message.setAttribute('role', 'status');
     container.append(message);
   }
   return container;
+}
+
+function extraCatalogs(): HTMLElement {
+  const current = state!;
+  const section = element('section', 'extra-catalogs',
+    element('div', 'extra-catalogs-heading', element('div', '', element('h2', '', 'Your catalogs'),
+      element('p', 'subtle', 'Append models from a catalog URL or JSON file. Built-in entries stay in place; conflicting model IDs or aliases are skipped.')),
+    element('div', 'extra-catalog-actions',
+      button('Add catalog URL', 'button secondary', () => send({ type: 'addCatalogUrl' }), 'add-catalog-url'),
+      button('Import JSON file', 'button secondary', () => send({ type: 'importCatalogFile' }), 'import-catalog-file'))));
+  section.setAttribute('aria-label', 'Your catalogs');
+  if (current.extraCatalogs.length) {
+    const list = element('ul', 'extra-catalog-list');
+    for (const catalog of current.extraCatalogs) {
+      const remove = button('Remove', 'text-button', () => send({ type: 'removeExtraCatalog', id: catalog.id }), `remove-catalog-${catalog.id}`);
+      remove.setAttribute('aria-label', `Remove catalog ${catalog.label}`);
+      const item = element('li', 'extra-catalog',
+        element('div', 'extra-catalog-heading', element('strong', '', catalog.label), badge(catalog.kind === 'url' ? 'URL catalog' : 'Imported JSON'), remove),
+        element('p', 'subtle', `${catalog.addedModelCount} of ${catalog.modelCount} models appended${catalog.ignoredModelCount ? ` · ${catalog.ignoredModelCount} conflicting ${catalog.ignoredModelCount === 1 ? 'model' : 'models'} skipped` : ''}`),
+        element('p', 'subtle', `Revision ${catalog.revision} · Reviewed ${date(catalog.reviewedAt)}${catalog.syncedAt ? ` · Synced ${date(catalog.syncedAt)}` : ''}`),
+        catalog.message ? element('p', 'catalog-message', catalog.message) : undefined);
+      list.append(item);
+    }
+    section.append(list, button('Refresh added catalogs', 'text-button', () => send({ type: 'refreshExtraCatalogs' }), 'refresh-extra-catalogs'));
+  } else section.append(element('p', 'subtle extra-catalog-empty', 'No extra catalogs added. Imported data is saved on this device.'));
+  if (current.extraCatalogsMessage) {
+    const message = element('p', 'catalog-message', current.extraCatalogsMessage);
+    message.setAttribute('role', 'status');
+    section.append(message);
+  }
+  return section;
 }
 
 function discoveryStatus(): HTMLElement {
@@ -345,11 +376,12 @@ function guidanceCard(model: CatalogModel): HTMLElement {
   const guidance = model.guidance.find(item => item.task === view.task)!;
   const detected = matches(model).length > 0;
   return element('article', 'model-card recommendation',
-    element('div', 'card-heading', element('span', 'provider', model.provider), badge(detected ? 'Detected' : 'Public catalog', detected ? 'positive' : '')),
+    element('div', 'card-heading', element('span', 'provider', model.provider), badge(detected ? 'Detected' : model.catalogLabel ? 'Appended catalog' : 'Public catalog', detected ? 'positive' : '')),
     element('h3', 'model-title', model.name),
+    model.catalogLabel ? element('p', 'catalog-provenance subtle', `Catalog: ${model.catalogLabel}`) : undefined,
     element('p', 'guidance', guidance.rationale),
     element('div', 'limitation', element('span', 'mini-label', 'Consider before choosing'), element('p', '', guidance.limitation)),
-    element('div', 'card-source', sourceLink(guidance.sourceId), element('span', 'subtle', `Reviewed ${date(state!.catalog.reviewedAt)}`)),
+    element('div', 'card-source', sourceLink(guidance.sourceId), element('span', 'subtle', `Reviewed ${date(model.catalogReviewedAt ?? state!.catalog.reviewedAt)}`)),
     showScoreChartsButton(catalogEntry(model)), compareButton(catalogEntry(model)),
   );
 }
@@ -375,7 +407,7 @@ function choosePanel(): HTMLElement {
   filterHelp.id = 'availability-filter-help';
   const section = element('section', 'tab-panel', element('div', 'home-filter', filterLabel, filterHelp), taskChoices(),
     element('div', 'section-heading', element('div', '', element('div', 'eyebrow', 'A STARTING POINT'), element('h2', '', `Options for ${currentTask.name.toLowerCase()}`)),
-      badge(onlyAvailable ? 'From your detected models' : 'From the public catalog')),
+      badge(onlyAvailable ? 'From your detected models' : 'From your catalogs')),
     element('p', 'section-description', 'Curated interpretations of published guidance, listed alphabetically. These are starting points, not benchmark rankings.'),
   );
   section.id = 'choose-panel';
@@ -408,9 +440,10 @@ function choosePanel(): HTMLElement {
 
 function priceContent(model: CatalogModel): HTMLElement {
   const pricing = activePricing(model);
-  if (!pricing) return element('div', '', element('p', 'subtle', model.pricing ? 'Published price expired. Check GitHub for current rates.' : 'No reviewed pricing available.'), model.pricing ? sourceLink(model.pricing.sourceId, 'GitHub pricing') : undefined);
+  const sourceLabel = model.catalogLabel ? 'Pricing source' : 'GitHub pricing';
+  if (!pricing) return element('div', '', element('p', 'subtle', model.pricing ? 'Published price expired. Check the source for current rates.' : 'No published pricing available.'), model.pricing ? sourceLink(model.pricing.sourceId, sourceLabel) : undefined);
   const box = element('div', 'price-content');
-  box.append(element('p', 'mini-label', 'Copilot token rates · USD / 1M tokens'));
+  box.append(element('p', 'mini-label', `${model.catalogLabel ? 'Published' : 'Copilot'} token rates · USD / 1M tokens`));
   for (const tier of pricing.tiers) {
     const details = element('div', 'price-tier', element('strong', '', tier.name),
       element('p', '', `${money(tier.inputUsdPerMillion)} input · ${money(tier.outputUsdPerMillion)} output`));
@@ -419,7 +452,8 @@ function priceContent(model: CatalogModel): HTMLElement {
     if (tier.threshold) details.append(element('p', 'subtle', tier.threshold));
     box.append(details);
   }
-  box.append(sourceLink(pricing.sourceId, 'GitHub pricing'), element('p', 'subtle review-date', `Reviewed ${date(pricing.reviewedAt)}${pricing.validThrough ? ` · Valid through ${date(pricing.validThrough)}` : ''}`));
+  const freshness = [pricing.reviewedAt ? `Reviewed ${date(pricing.reviewedAt)}` : undefined, pricing.syncedAt ? `Synced ${date(pricing.syncedAt)}` : undefined, pricing.validThrough ? `Valid through ${date(pricing.validThrough)}` : undefined].filter(Boolean).join(' · ');
+  box.append(sourceLink(pricing.sourceId, sourceLabel), element('p', 'subtle review-date', freshness));
   return box;
 }
 
@@ -518,6 +552,13 @@ function scoreChart(entries: ComparisonEntry[], metric: ScoreMetric, compact = f
       if (isStale((record.asOf ?? state!.scores.snapshot!.asOf).slice(0, 10))) details.push('Source data over 14 days old');
     } else details.push(scoreReferenceId(entry) ? 'No published result for this reference.' : 'No unambiguous reference match. You can optionally link a published reference.');
     row.append(element('p', 'subtle score-row-details', details.join(' · ')));
+    if (record && (record.source || record.sourceUrl || record.sourceVersion)) {
+      const source = record.sourceUrl
+        ? button(`${record.source ?? metadata.source} ↗`, 'text-button', () => send({ type: 'openScoreSource', metric, modelId: record.modelId }))
+        : record.source ?? metadata.source;
+      if (typeof source !== 'string') source.setAttribute('aria-label', `${metadata.label} source for ${entry.label} (opens in browser)`);
+      row.append(element('p', 'subtle score-row-details score-record-source', 'Source: ', source, record.sourceVersion ? ` · Source API version: ${record.sourceVersion}` : undefined));
+    }
     if (record?.citation) row.append(element('p', 'subtle score-row-details', `Source citation: ${record.citation}`));
     figure.append(row);
   }
@@ -560,6 +601,10 @@ function scoreEvidence(entries: ComparisonEntry[], compact = false): HTMLElement
     ? 'Choose “Show score charts” to automatically load matching published results. Missing or ambiguous matches remain unavailable; you can optionally link a reference.'
     : 'Adding a model or choosing “View comparison” automatically loads scores and displays matching published results. Missing or ambiguous matches remain unavailable; you can optionally link a reference.'));
   section.append(element('p', 'subtle score-caveat', 'References are matched automatically by published identifiers or names, or selected by you. They are not verified model matches. Provider, version, reasoning settings, and evaluation setup can differ from your Copilot session. These charts are not measurements of your deployment. Evaluation settings may also differ between references; bar differences do not establish statistical significance.'));
+  section.append(element('p', 'subtle score-attribution', 'Score data via OpenRouter Data API · ',
+    button('CC BY 4.0 license ↗', 'text-button', () => send({ type: 'openScoreInfo', topic: 'license' })), ' · ',
+    button('Attribution guidance ↗', 'text-button', () => send({ type: 'openScoreInfo', topic: 'attribution' })),
+    '. Values selected, formatted, and charted by ModelBeacon; no endorsement implied.'));
   return section;
 }
 
@@ -574,8 +619,9 @@ function modelCard(model: CatalogModel): HTMLElement {
   if (runtimes.length) details.append(element('p', 'subtle', 'A reviewed runtime alias matches this catalog entry. An identical deployed model snapshot is not established.'));
   details.append(scoreEvidence([catalogEntry(model)], true));
   return element('article', 'model-card browse-card',
-    element('div', 'card-heading', element('span', 'provider', model.provider), availability(runtimes)),
+    element('div', 'card-heading', element('span', 'provider', model.provider), availability(runtimes, model)),
     element('h3', 'model-title', model.name),
+    model.catalogLabel ? element('p', 'catalog-provenance subtle', `Catalog: ${model.catalogLabel}`) : undefined,
     state!.catalog.benchmarks.length ? element('p', 'evidence-count', observations.length ? `${observations.length} external benchmark ${observations.length === 1 ? 'observation' : 'observations'}` : 'No matching benchmark evidence') : undefined,
     details, showScoreChartsButton(catalogEntry(model)), compareButton(catalogEntry(model)),
   );
@@ -606,7 +652,7 @@ function explorePanel(): HTMLElement {
   const filters = element('div', 'filters');
   filters.setAttribute('role', 'group');
   filters.setAttribute('aria-label', 'Model availability');
-  for (const [filter, label] of [['all', 'Public catalog + local'], ['detected', 'Detected in VS Code']] as const) {
+  for (const [filter, label] of [['all', 'All catalogs + local'], ['detected', 'Detected in VS Code']] as const) {
     const control = button(label, `filter ${view.filter === filter ? 'active' : ''}`, () => { view.filter = filter; persist(); render(); }, `filter-${filter}`);
     control.setAttribute('aria-pressed', String(view.filter === filter));
     filters.append(control);
@@ -658,7 +704,8 @@ function comparison(): HTMLElement {
     heading.scope = 'row';
     body.append(element('tr', '', heading, ...entries.map(entry => element('td', '', content(entry)))));
   };
-  row('Availability', entry => availability(runtimes(entry)));
+  row('Catalog', entry => element('span', '', entry.catalog?.catalogLabel ?? (entry.catalog ? 'Built-in catalog' : 'Local runtime')));
+  row('Availability', entry => availability(runtimes(entry), entry.catalog));
   row('Runtime identity', entry => runtimes(entry).length
     ? element('div', 'identity-details', ...runtimes(entry).map(({ model }) => element('div', '', element('p', '', `Provider: ${model.vendor}`), element('p', '', `ID: ${model.id}`), element('p', 'subtle', `Version: ${model.version || 'Not reported'}`))))
     : element('span', 'subtle', 'Not reported by VS Code.'));
@@ -668,7 +715,7 @@ function comparison(): HTMLElement {
   row(`${tasks.find(task => task.id === view.task)!.name} guidance`, entry => {
     const guidance = entry.catalog?.guidance.find(item => item.task === view.task);
     return guidance
-      ? element('div', '', element('p', '', guidance.rationale), element('p', 'subtle', guidance.limitation), sourceLink(guidance.sourceId), element('p', 'subtle review-date', `Reviewed ${date(state!.catalog.reviewedAt)}`))
+      ? element('div', '', element('p', '', guidance.rationale), element('p', 'subtle', guidance.limitation), sourceLink(guidance.sourceId), element('p', 'subtle review-date', `Reviewed ${date(entry.catalog!.catalogReviewedAt ?? state!.catalog.reviewedAt)}`))
       : element('span', 'subtle', 'No reviewed guidance for this task.');
   });
   row('Published capabilities', entry => entry.catalog?.facts.length
@@ -811,6 +858,7 @@ function footer(): HTMLElement {
     element('p', '', 'Published scores are external evaluations downloaded from OpenRouter when you compare models, show score charts, connect, or refresh. References match automatically by published identifiers or names; you can optionally choose a different reference. Neither verifies your deployed model. Scores keep their source, dates, and units, and missing results remain unavailable.'),
     element('p', '', 'The OpenRouter key is stored securely by VS Code. Saved scores and reference links stay on this device. Disconnect & clear scores removes the key, score cache, and reference links.'),
     element('p', '', 'Detected model identity, name, provider, version, family, input limit, and last-seen time are remembered on this device. Custom model metadata is not uploaded or merged into the public catalog. Clear local models removes this history, runtime comparison selections, and runtime score references.'),
+    element('p', '', 'Added catalogs are saved on this device and append to the built-in catalog. Their publisher supplies the facts and guidance; adding a catalog does not verify its claims. URL refreshes contact the URL you added. Removing a catalog removes its models and comparison selections.'),
   );
   if (state!.catalog.benchmarks.length) settings.append(element('p', '', 'Benchmark observations retain their evaluation configuration and dates. Charts appear only for reviewed compatible evaluation groups; their results do not establish performance on every coding task.'));
   const automatic = element('input');
@@ -842,7 +890,7 @@ function render(): void {
   view.selected = comparisonEntries().map(entry => entry.key);
   persist();
   sourceCounter = 0;
-  root.replaceChildren(element('div', 'shell', header(), catalogStatus(), discoveryStatus(), scoreStatus(), tabs(), view.tab === 'choose' ? choosePanel() : explorePanel(), footer(), compareTray()));
+  root.replaceChildren(element('div', 'shell', header(), catalogStatus(), extraCatalogs(), discoveryStatus(), scoreStatus(), tabs(), view.tab === 'choose' ? choosePanel() : explorePanel(), footer(), compareTray()));
   for (const details of document.querySelectorAll<HTMLDetailsElement>('details')) if (openDetails.includes(details.id)) details.open = true;
   if (focusId) {
     const next = document.getElementById(focusId) as HTMLInputElement | null;

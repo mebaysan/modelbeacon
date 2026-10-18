@@ -101,11 +101,45 @@ test('null and missing scores stay unavailable while a real zero remains zero', 
   assert.equal(parseScoreResponses([response([{ ...gpqa, accuracy: 0, accuracy_stddev: null }])], false, DATE).records[0].standardDeviation, undefined);
 });
 
-test('API-only fields, prices and arbitrary response URLs never enter the cache', () => {
+test('unrelated API fields, prices and arbitrary endpoint URLs never enter the cache', () => {
   const snapshot = parseScoreResponses([response([{ ...aa, api_key: 'private', pricing: { prompt: '0.1' } }, { ...gpqa, avg_cost_per_task: 10 }])], true, DATE);
   const parsed = parseScoreSnapshot({ ...snapshot, key: 'secret', records: snapshot.records.map(row => ({ ...row, endpoint: 'private' })) });
   assert.deepEqual(parsed, snapshot);
   assert.doesNotMatch(JSON.stringify(parsed), /private|secret|pricing|avg_cost|endpoint/);
+});
+
+test('source attribution, URLs and API versions survive normalization and cache reload per response', () => {
+  const snapshot = parseScoreResponses([
+    { data: [aa], meta: { as_of: DATE, citation: 'Source: Artificial Analysis via OpenRouter.', source: 'artificial-analysis', source_url: 'https://artificialanalysis.ai', version: 'v1' } },
+    { data: [gpqa], meta: { as_of: '2026-10-16T12:00:00Z', citation: 'Source: OpenRouter.', source: 'openrouter', source_url: 'https://openrouter.ai/rankings', version: 'v2' } },
+  ], true, DATE);
+  assert.deepEqual(snapshot.records.map(({ source, sourceUrl, sourceVersion }) => [source, sourceUrl, sourceVersion]), [
+    ...Array(3).fill(['artificial-analysis', 'https://artificialanalysis.ai', 'v1']),
+    ['openrouter', 'https://openrouter.ai/rankings', 'v2'],
+  ]);
+  assert.equal(snapshot.records[3].citation, 'Source: OpenRouter.');
+  assert.equal(snapshot.records[3].asOf, '2026-10-16T12:00:00.000Z');
+  assert.deepEqual(parseScoreSnapshot(JSON.parse(JSON.stringify(snapshot))), snapshot);
+
+  const legacy = parseScoreResponses([response([gpqa])], false, DATE);
+  assert.equal('sourceUrl' in legacy.records[0], false);
+  assert.deepEqual(parseScoreSnapshot(legacy), legacy);
+  const missing = parseScoreResponses([{ data: [gpqa], meta: { as_of: DATE, source: null, source_url: null, version: null, citation: null } }], false, DATE);
+  assert.deepEqual(missing, legacy);
+});
+
+test('source metadata is bounded text and only credential-free HTTPS source links are accepted', () => {
+  const snapshot = parseScoreResponses([response([gpqa])], false, DATE);
+  for (const source_url of ['javascript:alert(1)', 'command:workbench.action.openSettings', 'file:///tmp/data', 'http://example.com', 'https://user:secret@example.com', 'https://example.com/\n', 'https://example.com/' + 'a'.repeat(2048), 42]) {
+    assert.throws(() => parseScoreResponses([{ data: [gpqa], meta: { as_of: DATE, source_url } }], false, DATE), /source URL/);
+    assert.throws(() => parseScoreSnapshot({ ...snapshot, records: [{ ...snapshot.records[0], sourceUrl: source_url }] }), /source URL/);
+  }
+  for (const invalid of ['', 'a'.repeat(201), 'source\ntext', 1, {}]) {
+    for (const [api, saved] of [['source', 'source'], ['version', 'sourceVersion']]) {
+      assert.throws(() => parseScoreResponses([{ data: [gpqa], meta: { as_of: DATE, [api]: invalid } }], false, DATE), /text/);
+      assert.throws(() => parseScoreSnapshot({ ...snapshot, records: [{ ...snapshot.records[0], [saved]: invalid }] }), /text/);
+    }
+  }
 });
 
 test('all response dates are validated and the oldest source timestamp represents the batch', () => {

@@ -46,7 +46,7 @@ jobs:
     permissions:
       contents: write
     env:
-      LLMBENCH_CATALOG_URL: ${{ vars.LLMBENCH_CATALOG_URL }}
+      LLMBENCH_CATALOG_URL: ${{ vars.LLMBENCH_CATALOG_URL || 'https://mebaysan.github.io/modelbeacon/catalog/v2.json' }}
     steps:
       - uses: actions/checkout@v4
         with:

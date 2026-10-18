@@ -43,6 +43,32 @@ test('construction is offline, validates saved scores and strips unexpected cach
   }
 });
 
+test('legacy cache remains readable and refresh retains source metadata through persistence and failure', async () => {
+  const disk = storage(saved);
+  const store = new ScoreStore(disk, async url => {
+    const payload = await result(url).json();
+    payload.meta = { ...payload.meta, source: 'openrouter', source_url: 'https://openrouter.ai/rankings', version: 'v1', citation: 'Source: OpenRouter.' };
+    return new Response(JSON.stringify(payload));
+  }, () => NOW);
+  assert.deepEqual(store.snapshot, saved);
+  assert.equal(disk.writes.length, 0, 'Loading an older cache needs no rewrite or migration');
+  await store.refresh('test-key', false);
+  for (const record of store.snapshot!.records) {
+    assert.equal(record.source, 'openrouter');
+    assert.equal(record.sourceUrl, 'https://openrouter.ai/rankings');
+    assert.equal(record.sourceVersion, 'v1');
+    assert.equal(record.citation, 'Source: OpenRouter.');
+  }
+  const reopened = new ScoreStore(disk, async () => new Response(JSON.stringify({
+    ...payload, meta: { as_of: DATE, source_url: 'javascript:alert(1)' },
+  })), () => NOW);
+  assert.deepEqual(reopened.snapshot, store.snapshot);
+  await reopened.refresh('test-key', false);
+  assert.deepEqual(reopened.snapshot, store.snapshot);
+  assert.deepEqual(disk.value, store.snapshot);
+  assert.match(reopened.message, /Keeping the previously saved scores/);
+});
+
 test('refresh queries only fixed public benchmark endpoints with isolated credentials and caches allowlisted scores', async () => {
   const disk = storage();
   const calls: { url: string; options: RequestInit }[] = [];

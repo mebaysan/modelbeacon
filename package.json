@@ -1,8 +1,8 @@
 {
   "name": "modelbeacon",
   "displayName": "ModelBeacon",
-  "description": "Compare Copilot and custom models with benchmark charts, sourced task guidance, pricing, and local model history.",
-  "version": "0.4.4",
+  "description": "Compare Copilot and custom models with score charts, automatically updated model data, and your own URL or JSON catalogs.",
+  "version": "0.5.0",
   "publisher": "mebaysan",
   "icon": "media/icon.png",
   "galleryBanner": {
@@ -56,6 +56,21 @@
         "category": "ModelBeacon"
       },
       {
+        "command": "llmBench.addCatalogUrl",
+        "title": "Append Catalog from URL",
+        "category": "ModelBeacon"
+      },
+      {
+        "command": "llmBench.importCatalogFile",
+        "title": "Append Catalog from JSON",
+        "category": "ModelBeacon"
+      },
+      {
+        "command": "llmBench.refreshExtraCatalogs",
+        "title": "Refresh Appended Catalogs",
+        "category": "ModelBeacon"
+      },
+      {
         "command": "llmBench.clearLocalModels",
         "title": "Clear Local Models",
         "category": "ModelBeacon"
@@ -83,7 +98,7 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "Check the published catalog when the explorer opens, at most once daily. No prompts, code, model IDs, or telemetry are sent. Uses bundled/cached data when offline."
+          "description": "Check the public feed and your appended URL catalogs when the explorer opens, at most once daily. URL hosts receive ordinary request metadata. Uses bundled/cached data when offline."
         },
         "llmBench.includeCompositeScores": {
           "type": "boolean",
@@ -130,6 +145,7 @@
     "test:ui": "npm run build && playwright test",
     "test:extension": "npm run build && node scripts/test-extension.mjs",
     "catalog:check": "node --experimental-strip-types scripts/catalog-check.mts",
+    "catalog:sync": "node --experimental-strip-types scripts/catalog-sync.mts",
     "preview": "npm run build && node scripts/preview.mjs",
     "package": "vsce package --githubBranch main --out modelbeacon.vsix",
     "package:release": "vsce package --githubBranch main --out modelbeacon.vsix"
@@ -141,7 +157,8 @@
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
-    "typescript": "^6.0.0"
+    "typescript": "^6.0.0",
+    "yaml": "^2.9.1"
   },
   "type": "module",
   "repository": {

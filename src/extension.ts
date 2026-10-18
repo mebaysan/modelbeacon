@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
+import { posix } from 'node:path';
 import { CatalogStore } from './catalog-store.ts';
+import { ExtraCatalogStore } from './extra-catalog-store.ts';
 import { LocalModelStore, parseDiscoveredModels } from './local-model-store.ts';
 import { ScoreStore } from './score-store.ts';
-import { SCORE_METRICS } from './scores.ts';
+import { SCORE_DATA_LINKS, SCORE_METRICS } from './scores.ts';
 import { isSafeExternalUrl, isWebviewRequest, runtimeKey } from './core.ts';
 import type { ExplorerState, HostMessage } from './types.ts';
 
@@ -27,6 +29,8 @@ function readScoreLinks(value: unknown): Record<string, string> {
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const bundled = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(context.extensionUri, 'data', 'catalog.json'));
   const store = new CatalogStore(JSON.parse(Buffer.from(bundled).toString('utf8')), context.globalState, __CATALOG_URL__);
+  const extraCatalogs = new ExtraCatalogStore(context.globalState);
+  const initialCatalogs = extraCatalogs.view(store.catalog);
   const localModels = new LocalModelStore(context.globalState);
   const scores = new ScoreStore(context.globalState);
   let scoreConnected = false;
@@ -49,11 +53,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let refreshingScores: Promise<void> | undefined;
   let scorePickers: Promise<void> = Promise.resolve();
   const scoreActions = new Map<string, Promise<void>>();
+  let importingCatalog = false;
   const state: ExplorerState = {
-    catalog: store.catalog,
+    catalog: initialCatalogs.catalog,
     catalogOrigin: store.origin,
     catalogMessage: store.message,
     catalogLoading: false,
+    extraCatalogs: initialCatalogs.entries,
+    extraCatalogsMessage: extraCatalogs.message,
     discovered: [],
     localModels: localModels.models,
     localModelsMessage: localModels.message,
@@ -272,11 +279,79 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   async function refreshCatalog(force: boolean): Promise<void> {
     state.catalogLoading = true;
     sendState();
-    await store.refresh(force);
-    state.catalog = store.catalog;
+    await Promise.all([store.refresh(force), extraCatalogs.refresh(force)]);
+    updateCatalogs();
     state.catalogOrigin = store.origin;
     state.catalogMessage = store.message;
     state.catalogLoading = false;
+    sendState();
+  }
+
+  function updateCatalogs(): void {
+    const merged = extraCatalogs.view(store.catalog);
+    state.catalog = merged.catalog;
+    state.extraCatalogs = merged.entries;
+    state.extraCatalogsMessage = extraCatalogs.message;
+  }
+
+  async function importCatalog(kind: 'url' | 'file'): Promise<void> {
+    if (importingCatalog || disposed) return;
+    importingCatalog = true;
+    try {
+      if (kind === 'url') {
+        const url = await vscode.window.showInputBox({
+          title: 'Append Catalog from URL', ignoreFocusOut: true,
+          prompt: 'Enter an HTTPS catalog JSON URL. It is saved on this device and refreshed with catalog updates. No authentication headers are sent.',
+          validateInput: value => isSafeExternalUrl(value) ? undefined : 'Enter an HTTPS URL without embedded credentials.',
+        });
+        if (!url || disposed) return;
+        await extraCatalogs.addUrl(url);
+      } else {
+        const files = await vscode.window.showOpenDialog({
+          title: 'Append Catalog from JSON', canSelectFiles: true, canSelectFolders: false, canSelectMany: false,
+          filters: { 'Catalog JSON': ['json'] }, openLabel: 'Append catalog',
+        });
+        if (!files?.length || disposed) return;
+        const file = files[0];
+        let text: string;
+        try {
+          if ((await vscode.workspace.fs.stat(file)).size > 2 * 1024 * 1024) throw new Error('Too large');
+          const bytes = await vscode.workspace.fs.readFile(file);
+          if (bytes.byteLength > 2 * 1024 * 1024) throw new Error('Too large');
+          text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        } catch { throw new Error('The selected file could not be read as UTF-8 JSON within the 2 MiB limit.'); }
+        if (disposed) return;
+        await extraCatalogs.addFile(posix.basename(file.path), text);
+      }
+      updateCatalogs();
+    } catch (error) {
+      state.extraCatalogsMessage = error instanceof Error ? error.message : 'The catalog could not be added. Existing catalogs are unchanged.';
+    } finally {
+      importingCatalog = false;
+      sendState();
+    }
+  }
+
+  async function refreshExtraCatalogs(): Promise<void> {
+    await extraCatalogs.refresh(true);
+    updateCatalogs();
+    sendState();
+  }
+
+  async function removeExtraCatalog(id: string): Promise<void> {
+    if (!state.extraCatalogs.some(entry => entry.id === id)) return;
+    await extraCatalogs.remove(id);
+    updateCatalogs();
+    const remainingKeys = new Set(state.catalog.models.map(model => JSON.stringify(['catalog', model.id])));
+    const keepReference = (key: string) => !key.startsWith('["catalog",') || remainingKeys.has(key);
+    for (const key of scoreActions.keys()) if (!keepReference(key)) scoreActions.delete(key);
+    await writeScores(async () => {
+      // Include models dropped by an earlier feed refresh when removing private catalog references.
+      const links = Object.fromEntries(Object.entries(state.scores.links).filter(([key]) => keepReference(key)));
+      state.scores.links = links;
+      try { await context.globalState.update(SCORE_LINKS, Object.keys(links).length ? links : undefined); }
+      catch { state.extraCatalogsMessage += ' Saved score references could not be removed. Disconnect and Clear Scores can remove the remaining references.'; }
+    });
     sendState();
   }
 
@@ -391,6 +466,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           case 'detectModels': await detectModels(); break;
           case 'clearLocalModels': await clearLocalModels(); break;
           case 'refreshCatalog': await refreshCatalog(true); break;
+          case 'addCatalogUrl': await importCatalog('url'); break;
+          case 'importCatalogFile': await importCatalog('file'); break;
+          case 'refreshExtraCatalogs': await refreshExtraCatalogs(); break;
+          case 'removeExtraCatalog': await removeExtraCatalog(message.id); break;
           case 'openPicker': await openPicker(); break;
           case 'openSource': await openExternal(state.catalog.sources.find(source => source.id === message.sourceId)?.url); break;
           case 'openHelp': await openExternal(HELP[message.topic]); break;
@@ -401,7 +480,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           case 'compareScores': await compareScores(message.keys); break;
           case 'linkScores': await scoreAction(message.key, 'link'); break;
           case 'unlinkScores': await scoreAction(message.key, 'unlink'); break;
-          case 'openScoreSource': await openExternal(SCORE_METRICS[message.metric].sourceUrl); break;
+          case 'openScoreSource': {
+            const record = state.scores.snapshot?.records.find(row => row.metric === message.metric && row.modelId === message.modelId);
+            if (!message.modelId || record) await openExternal(record?.sourceUrl ?? SCORE_METRICS[message.metric].sourceUrl);
+            break;
+          }
+          case 'openScoreInfo': await openExternal(SCORE_DATA_LINKS[message.topic]); break;
           case 'setCompositeScores':
             await vscode.workspace.getConfiguration('llmBench').update('includeCompositeScores', message.enabled, vscode.ConfigurationTarget.Global);
             break;
@@ -460,6 +544,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('llmBench.refreshModels', async () => { open(); await detectModels(); }),
     vscode.commands.registerCommand('llmBench.clearLocalModels', clearLocalModels),
     vscode.commands.registerCommand('llmBench.refreshCatalog', async () => { open(); await refreshCatalog(true); }),
+    vscode.commands.registerCommand('llmBench.addCatalogUrl', async () => { open(); await importCatalog('url'); }),
+    vscode.commands.registerCommand('llmBench.importCatalogFile', async () => { open(); await importCatalog('file'); }),
+    vscode.commands.registerCommand('llmBench.refreshExtraCatalogs', async () => { open(); await refreshExtraCatalogs(); }),
     vscode.commands.registerCommand('llmBench.connectScores', connectScores),
     vscode.commands.registerCommand('llmBench.refreshScores', refreshScores),
     vscode.commands.registerCommand('llmBench.clearScores', clearScores),

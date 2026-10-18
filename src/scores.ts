@@ -1,7 +1,13 @@
 import type { ModelScore, ScoreMetric, ScoreSnapshot } from './types.ts';
+import { isSafeExternalUrl } from './core.ts';
 
 const API_DOCS = 'https://openrouter.ai/docs/api/api-reference/benchmarks/list-benchmarks';
 const AA_METHOD = 'https://artificialanalysis.ai/methodology/intelligence-benchmarking';
+
+export const SCORE_DATA_LINKS = {
+  license: 'https://creativecommons.org/licenses/by/4.0/',
+  attribution: 'https://openrouter.ai/docs/cookbook/administration/data-api',
+} as const;
 
 export const SCORE_METRICS: Record<ScoreMetric, {
   label: string; unit: 'points' | '%'; source: string; sourceUrl: string; composite: boolean;
@@ -60,6 +66,11 @@ function text(value: unknown, max = 200): string {
   return value;
 }
 
+function sourceUrl(value: unknown): string {
+  if (!isSafeExternalUrl(value)) throw new Error('Invalid benchmark source URL.');
+  return value;
+}
+
 function modelId(value: unknown): string {
   const id = text(value);
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._:+-]*$/.test(id)
@@ -103,7 +114,13 @@ export function parseScoreResponses(responses: unknown[], includeComposites: boo
     const asOf = timestamp(meta.as_of);
     if (Date.parse(asOf) > latest) throw new Error('Future benchmark source date.');
     dates.push(asOf);
-    const provenance = { asOf, ...(meta.citation == null ? {} : { citation: text(meta.citation, 1_000) }) };
+    const provenance = {
+      asOf,
+      ...(meta.citation == null ? {} : { citation: text(meta.citation, 1_000) }),
+      ...(meta.source == null ? {} : { source: text(meta.source) }),
+      ...(meta.source_url == null ? {} : { sourceUrl: sourceUrl(meta.source_url) }),
+      ...(meta.version == null ? {} : { sourceVersion: text(meta.version) }),
+    };
     if (!Array.isArray(response.data) || response.data.length > 10_000) throw new Error('Invalid benchmark rows.');
     for (const raw of response.data) {
       const row = object(raw);
@@ -143,6 +160,9 @@ export function parseScoreSnapshot(input: unknown): ScoreSnapshot {
     const record: ModelScore = { modelId: modelId(row.modelId), modelName: text(row.modelName), metric, value: number(row.value, SCORE_METRICS[metric].composite ? Number.MAX_VALUE : 100) };
     if (row.asOf !== undefined) record.asOf = timestamp(row.asOf);
     if (row.citation !== undefined) record.citation = text(row.citation, 1_000);
+    if (row.source !== undefined) record.source = text(row.source);
+    if (row.sourceVersion !== undefined) record.sourceVersion = text(row.sourceVersion);
+    if (row.sourceUrl !== undefined) record.sourceUrl = sourceUrl(row.sourceUrl);
     if (row.evaluatedAt !== undefined) record.evaluatedAt = timestamp(row.evaluatedAt);
     if (row.sampleSize !== undefined) record.sampleSize = count(row.sampleSize);
     if (row.standardDeviation !== undefined) record.standardDeviation = number(row.standardDeviation, 100);

@@ -1,6 +1,6 @@
 # Developing and releasing ModelBeacon
 
-For the product tour and installation from an existing VSIX, see the [README](../README.md). This guide covers the local workflow, upgrades, architecture, catalog hosting, and release preparation. Version 0.4.4 has not been published to the Marketplace or validated with a user beta.
+For the product tour and [Marketplace installation](https://marketplace.visualstudio.com/items?itemName=mebaysan.modelbeacon), see the [README](../README.md). This guide covers the local workflow, upgrades, architecture, catalog hosting, and release preparation. Marketplace availability does not establish completion of the user beta or account-specific validation.
 
 ## Local development
 
@@ -51,7 +51,7 @@ Use **F5** for the development host. To install the packaged extension, run `cod
 
 `make test-extension` downloads pinned VS Code 1.140.0 and uses an isolated profile. Set `VSCODE_EXECUTABLE_PATH` to test an existing executable, or `VSCODE_VERSION` for another release. Tests never sign in or send model requests. Linux systems may need Chromium system libraries (`npx playwright install --with-deps chromium`) and a display for native tests, for example `xvfb-run -a make test-extension`.
 
-`make preview` serves the development-only browser preview at `http://127.0.0.1:4173`; use `PORT=4200 make preview` to change the port. Its detection button uses clearly labeled fixture data. Published-score test fixtures are examples, not live model measurements. The preview bridge is excluded from the VSIX. Setup, native test downloads, and any configured catalog feed can require network access; no publisher credentials are needed for the local workflow. Actual score downloads need a user-provided OpenRouter API key; building and running automated tests do not.
+`make preview` serves the development-only browser preview at `http://127.0.0.1:4173`; use `PORT=4200 make preview` to change the port. Detection and added-catalog controls use clearly labeled fixtures; native URL inputs and file dialogs belong to the extension host. Published-score test fixtures are examples, not live model measurements. The preview bridge is excluded from the VSIX. Setup, native test downloads, and any configured catalog feed can require network access; no publisher credentials are needed for the local workflow. Actual score downloads need a user-provided OpenRouter API key; building and running automated tests do not.
 
 See [release validation](validation.md) for what the automated suites establish and the account, accessibility, environment, and usability checks still required before public release.
 
@@ -73,11 +73,17 @@ Preserve these evidence distinctions when changing the product:
 
 - Task guidance is sourced editorial interpretation. Shortlisted choices display alphabetically and are not a measured ranking or guarantee.
 - API discovery does not establish account entitlement, exact picker parity, or equivalence to a public model snapshot. Custom identities receive no guessed public-model claims or Copilot rates.
-- The bundled catalog has no benchmark observations or measured rankings. Optional OpenRouter scores use a separate local snapshot and automatically resolved references with optional manual overrides. They do not alter task guidance, establish deployed-model equivalence, or populate the public catalog.
-- Pricing means GitHub's published USD rates per million tokens for AI-credit billing, including cache and context tiers. It is not usage measurement or a personal bill; expired promotions are hidden and legacy annual-plan billing is linked separately.
+- The bundled catalog has no benchmark observations or measured rankings. Added catalogs may contain sourced observations with their evaluation configuration; their comparison groups stay separate from the base and other added catalogs. Optional OpenRouter scores use a separate local snapshot and automatically resolved references with optional manual overrides. They do not alter task guidance, establish deployed-model equivalence, or populate the public catalog.
+- Built-in pricing means GitHub's published USD rates per million tokens for AI-credit billing, including cache and context tiers. Added-catalog pricing belongs to its own source and is not labeled as a Copilot rate. Neither is usage measurement or a personal bill; expired promotions are hidden and legacy annual-plan billing is linked separately.
 - API input limits remain separate from advertised context windows. Copilot Free/Student plans and organization policy may restrict selection; the interface links to GitHub's explanation of Auto.
 
-See the [privacy policy](../PRIVACY.md) for storage and network behavior. The extension makes no inference requests and does not accept custom benchmark uploads. The public catalog, local model cache, and optional public-score cache have separate storage and clearing behavior.
+See the [privacy policy](../PRIVACY.md) for storage and network behavior. The extension makes no inference requests or benchmark runs. It accepts catalog observations only with required source references and evaluation context. The public catalog, added catalogs, local model cache, and optional public-score cache have separate storage and clearing behavior.
+
+### Added catalogs
+
+`ExtraCatalogStore` validates standalone schema v1/v2 catalogs and merges them into the current base in memory. It saves at most ten catalogs of 2 MiB each in local extension storage. Base model IDs and aliases win, followed by previously added catalogs; conflicts are skipped. Source IDs, observation IDs, and comparison groups are scoped to each added catalog. User catalogs are never written into `data/catalog.json`, uploaded, or registered for Settings Sync.
+
+**Your catalogs** exposes URL addition, native JSON selection, URL refresh, and removal in both views. URL downloads use HTTPS without credentials or redirects and retain the last valid snapshot on failure. JSON imports save a snapshot and filename, with no file watcher or retained path. Removal also clears comparison selections and manual score links for model IDs no longer present. See [the format and example](extra-catalogs.md) before adding data or extending validation.
 
 ### Published score integration
 
@@ -93,15 +99,25 @@ Overlapping requests share a download. Cached charts remain visible during refre
 
 Render separate charts per metric with numeric labels, units, source attribution, and snapshot dates. Accuracy percentages and index points must not share a scale or become a combined winner score. Unknown results remain unavailable. Show reported uncertainty only with its actual meaning; standard deviation is not a confidence interval, and missing uncertainty must not be invented. An API snapshot does not guarantee identical evaluation configurations across models or statistical significance.
 
+Score charts include links to the CC BY 4.0 license and OpenRouter attribution guidance. Supplied citations, source names, HTTPS source URLs, API versions, and dates remain attached to their score records. The optional metadata fields keep `scoreCache.v1` compatible with older snapshots; loading them does not require a migration or a download. Source links resolve from validated host-side records and open only when clicked.
+
 ## Catalog feed and maintenance
 
-The extension opens from bundled or cached catalog data immediately. A build with a configured endpoint checks that endpoint at most once daily when opened. `llmBench.autoUpdateCatalog` controls automatic checks; manual refresh still works. Invalid downloads, network errors, and unsupported schema versions preserve the last valid catalog. Data older than 14 days is visibly marked.
+The extension opens from bundled or cached catalog data immediately. A build with a configured endpoint checks that endpoint at most once daily when opened. Added URL catalogs use the same automatic-update preference and their own daily request times. `llmBench.autoUpdateCatalog` controls automatic checks; manual refresh still works. Invalid downloads, network errors, and unsupported schema versions preserve the last valid data. Guidance older than 14 days without human review is visibly marked even when factual data was synchronized recently.
 
-Local builds have **no catalog endpoint by default** and make no catalog update requests. Set `LLMBENCH_CATALOG_URL` to the HTTPS address of the published catalog when building a release. The endpoint is compiled into the extension and cannot be changed by workspace settings. Catalog downloads need no API key or paid backend. Hosting receives ordinary HTTP request metadata when an update is requested, but no model identities or workspace content.
+Local builds have **no public catalog endpoint by default**. The release workflows default to `https://mebaysan.github.io/modelbeacon/catalog/v2.json`; the repository variable `LLMBENCH_CATALOG_URL` overrides that address. For a local feed-enabled build, set the same environment variable before `npm run build`. The public endpoint is compiled into the extension and cannot be changed by workspace settings. Catalog downloads need no API key or paid backend. Hosting receives ordinary HTTP request metadata when an update is requested, but no model identities or workspace content.
 
-See [catalog maintenance](catalog.md) for provenance, manual review steps, and licensing. A maintainer reviews model aliases, task advice, and current GitHub facts/prices before updating the bundled catalog or publishing a new feed revision. There is no scheduled upstream import.
+**Sync and publish catalog** runs daily at 06:23 UTC, on relevant changes pushed to `main`, and through **Run workflow**. It reads structured tables and documented conditions from the official `github/docs` repository, validates them, and deploys the generated v2 feed to GitHub Pages. The existing bundled snapshot is also served at `/catalog/v1.json` for older clients. Source-format changes, unsupported conditions, and failed checks stop deployment, preserving the previously published feed. No repository commit or extension release is needed for each factual update.
 
-To roll back an online catalog, restore the previous reviewed content in a new revision and use the actual new review date, then republish. Revisions use `YYYY-MM-DD.N`, with a numeric sequence for same-day corrections. Clients reject older revisions and unsupported schemas. To change the schema, update the extension and endpoint version together.
+Set up hosting once:
+
+1. In repository **Settings → Pages**, set **Source** to **GitHub Actions**.
+2. Run **Sync and publish catalog** and confirm its successful deployment and `/catalog/v2.json` endpoint.
+3. Publish the 0.5.0 extension version containing the feed URL. Existing installed versions cannot gain a compiled endpoint from a Pages deployment alone.
+
+No custom secret is needed for catalog synchronization or Pages deployment. Source access and deployment use the workflow's GitHub permissions. Marketplace credentials are separate. Review generated data locally with `npm run catalog:sync`; it writes `artifacts/site/catalog/v2.json` by default. See [catalog maintenance](catalog.md) for importer behavior, source attribution, and manual review steps. Task advice and runtime aliases remain curated; synchronization never advances the human review date or guesses aliases for a new model.
+
+Revisions use `YYYY-MM-DD.N`, with a numeric sequence for same-day corrections. In schema v1 the date matches `reviewedAt`; schema v2 can use `syncedAt` while retaining the actual human `reviewedAt`. Automated pricing uses its own `syncedAt`, without claiming human review. Clients reject older revisions and unsupported schemas. To roll back data, fix the source/importer or curate the correction and publish it as a newer revision; do not rely on a lower revision replacing a cache.
 
 ## Publishing
 
@@ -147,11 +163,11 @@ GitHub supplies the repository token used to create the tag, release, and asset.
 
 If publication fails, fix the cause and rerun the failed workflow. It reuses an existing release VSIX and skips a Marketplace version that is already published. A tag pointing to a different commit fails instead of being moved. Do not replace a published version; increase the version for a corrected package.
 
-Publishing a stable GitHub Release manually remains supported: its tag must equal `v` plus the package version, for example `v0.4.4` for `0.4.4`. Drafts and prereleases do not publish to Marketplace, and pushing a tag alone does not trigger publication. Normal releases need only the version increase on `main`.
+Publishing a stable GitHub Release manually remains supported: its tag must equal `v` plus the package version, for example `v0.5.0` for `0.5.0`. Drafts and prereleases do not publish to Marketplace, and pushing a tag alone does not trigger publication. Normal releases need only the version increase on `main`.
 
-The optional repository **variable** `LLMBENCH_CATALOG_URL` can supply a deployed HTTPS catalog endpoint. Leave it unset for bundled-catalog-only releases. Images do not depend on this setting. To deploy the reviewed catalog separately, enable Pages with GitHub Actions as its source and run **Publish reviewed catalog**; then configure the deployed `/catalog/v1.json` URL.
+The optional repository **variable** `LLMBENCH_CATALOG_URL` overrides the default GitHub Pages v2 endpoint. Leaving it unset keeps that default for release workflows. Listing images are served by the repository and do not depend on Pages or this setting. Local `npm run build` remains offline unless a feed URL is explicitly supplied.
 
-**Build release VSIX** remains available manually to produce an artifact without publishing; its catalog URL input is optional. Local release packaging also works:
+**Build release VSIX** remains available manually to produce an artifact without publishing; its optional catalog URL input overrides the repository variable or default Pages feed. Local release packaging also works:
 
 ```sh
 npm run package:release -- --githubBranch main

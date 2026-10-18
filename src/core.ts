@@ -69,13 +69,18 @@ function reference(value: unknown, path: string, ids: Set<string>): void {
 /** Validate every field used by the host or renderer before accepting downloaded data. */
 export function parseCatalog(input: unknown): Catalog {
   const catalog = record(input, 'catalog');
-  if (catalog.schemaVersion !== 1) invalid('schemaVersion', 'must be 1');
+  if (catalog.schemaVersion !== 1 && catalog.schemaVersion !== 2) invalid('schemaVersion', 'must be 1 or 2');
   date(catalog.reviewedAt, 'reviewedAt');
+  if (catalog.syncedAt !== undefined) {
+    if (catalog.schemaVersion !== 2) invalid('syncedAt', 'requires schemaVersion 2');
+    date(catalog.syncedAt, 'syncedAt');
+    if ((catalog.syncedAt as string) < (catalog.reviewedAt as string)) invalid('syncedAt', 'must not precede reviewedAt');
+  }
   const revision = text(catalog.revision, 'revision', 200);
   if (!/^\d{4}-\d{2}-\d{2}\.[1-9]\d{0,6}$/.test(revision) || revision.trim() !== revision) {
     invalid('revision', 'must be YYYY-MM-DD.N with N from 1 to 9999999 and no leading zeros');
   }
-  if (revision.slice(0, 10) !== catalog.reviewedAt) invalid('revision', 'date must match reviewedAt');
+  if (revision.slice(0, 10) !== (catalog.syncedAt ?? catalog.reviewedAt)) invalid('revision', 'date must match syncedAt or reviewedAt');
 
   const sourceIds = new Set<string>();
   for (const [index, value] of list(catalog.sources, 'sources', 500).entries()) {
@@ -99,6 +104,8 @@ export function parseCatalog(input: unknown): Catalog {
     uniqueId(model.id, `${path}.id`, modelIds);
     text(model.name, `${path}.name`, 200);
     text(model.provider, `${path}.provider`, 200);
+    if (model.catalogLabel !== undefined) text(model.catalogLabel, `${path}.catalogLabel`, 200);
+    if (model.catalogReviewedAt !== undefined) date(model.catalogReviewedAt, `${path}.catalogReviewedAt`);
     for (const [aliasIndex, aliasValue] of list(model.aliases, `${path}.aliases`, 100).entries()) {
       const aliasPath = `${path}.aliases[${aliasIndex}]`;
       const alias = record(aliasValue, aliasPath);
@@ -131,7 +138,12 @@ export function parseCatalog(input: unknown): Catalog {
       const pricingPath = `${path}.pricing`;
       const pricing = record(model.pricing, pricingPath);
       reference(pricing.sourceId, `${pricingPath}.sourceId`, sourceIds);
-      date(pricing.reviewedAt, `${pricingPath}.reviewedAt`);
+      if (catalog.schemaVersion === 1 || pricing.reviewedAt !== undefined) date(pricing.reviewedAt, `${pricingPath}.reviewedAt`);
+      if (pricing.syncedAt !== undefined) {
+        if (catalog.schemaVersion !== 2) invalid(`${pricingPath}.syncedAt`, 'requires schemaVersion 2');
+        date(pricing.syncedAt, `${pricingPath}.syncedAt`);
+      }
+      if (pricing.reviewedAt === undefined && pricing.syncedAt === undefined) invalid(pricingPath, 'requires reviewedAt or syncedAt');
       if (pricing.validThrough !== undefined) date(pricing.validThrough, `${pricingPath}.validThrough`);
       const tiers = list(pricing.tiers, `${pricingPath}.tiers`, 8);
       if (!tiers.length) invalid(`${pricingPath}.tiers`, 'must contain at least one tier');
@@ -172,7 +184,9 @@ export function parseCatalog(input: unknown): Catalog {
 }
 
 export function compareCatalogRevision(a: Catalog, b: Catalog): number {
-  if (a.reviewedAt !== b.reviewedAt) return a.reviewedAt < b.reviewedAt ? -1 : 1;
+  const aDate = a.revision.slice(0, 10);
+  const bDate = b.revision.slice(0, 10);
+  if (aDate !== bDate) return aDate < bDate ? -1 : 1;
   return Number(a.revision.slice(11)) - Number(b.revision.slice(11));
 }
 
@@ -226,11 +240,16 @@ export function isWebviewRequest(value: unknown): value is WebviewRequest {
     case 'detectModels':
     case 'clearLocalModels':
     case 'refreshCatalog':
+    case 'addCatalogUrl':
+    case 'importCatalogFile':
+    case 'refreshExtraCatalogs':
     case 'openPicker':
     case 'connectScores':
     case 'refreshScores':
     case 'clearScores':
       return keys.length === 1;
+    case 'removeExtraCatalog':
+      return keys.length === 2 && typeof request.id === 'string' && /^[a-f0-9-]{36}$/.test(request.id);
     case 'showScores':
     case 'linkScores':
     case 'unlinkScores':
@@ -241,7 +260,12 @@ export function isWebviewRequest(value: unknown): value is WebviewRequest {
         && request.keys.every(key => typeof key === 'string' && key.length > 0 && key.length <= 1800)
         && new Set(request.keys).size === request.keys.length;
     case 'openScoreSource':
-      return keys.length === 2 && ['intelligence', 'coding', 'agentic', 'gpqa', 'toolUse'].includes(request.metric as string);
+      return keys.every(key => ['type', 'metric', 'modelId'].includes(key))
+        && ['intelligence', 'coding', 'agentic', 'gpqa', 'toolUse'].includes(request.metric as string)
+        && (keys.length === 2 || keys.length === 3 && typeof request.modelId === 'string'
+          && !!request.modelId.trim() && request.modelId.length <= 200 && !/[\u0000-\u001f\u007f-\u009f]/.test(request.modelId));
+    case 'openScoreInfo':
+      return keys.length === 2 && ['license', 'attribution'].includes(request.topic as string);
     case 'openSource':
       return keys.length === 2 && typeof request.sourceId === 'string'
         && !!request.sourceId.trim() && request.sourceId.length <= 200;

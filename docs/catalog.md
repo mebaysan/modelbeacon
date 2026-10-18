@@ -1,8 +1,8 @@
 # Catalog maintenance
 
-The extension ships `data/catalog.json` and accepts the same versioned JSON contract from an optional published feed. Runtime validation is in `src/core.ts`; TypeScript records are in `src/types.ts`. Validate with `npm run catalog:check`. Keep the UTF-8 payload below 2 MB.
+The extension ships `data/catalog.json` and accepts a versioned JSON contract from its published feed and user-added catalogs. Runtime validation is in `src/core.ts`; TypeScript records are in `src/types.ts`. Validate a file with `npm run catalog:check -- path/to/catalog.json`. Keep each UTF-8 payload below 2 MB. User-added catalogs append locally; see [extra catalogs](extra-catalogs.md).
 
-Revision format is `YYYY-MM-DD.N`: the date must equal `reviewedAt`, and `N` is a positive sequence from 1 to 9999999 with no leading zeros. Increase the sequence for same-day corrections; reset it to 1 on a new review date. Clients compare dates and numeric sequences, so an older same-day cache or feed cannot override a corrected bundled catalog.
+Revision format is `YYYY-MM-DD.N`, where `N` is a positive sequence from 1 to 9999999 with no leading zeros. Schema 1 uses `reviewedAt` as the revision date. Schema 2 allows a separate `syncedAt`; the revision date equals `syncedAt` when present, otherwise `reviewedAt`. Increase the sequence for same-day changes. Clients compare revision dates and numeric sequences, so older same-day data cannot override a correction. Automatic synchronization never advances the human `reviewedAt` date. Schema 2 prices likewise distinguish `syncedAt` from an optional actual `reviewedAt`.
 
 Catalog revision **2026-10-17.2** contains **31 models, seven pinned source links, and no benchmark observations**. Its model facts, guidance, and pricing were reviewed on October 17, 2026. GPT-5.4 nano is omitted because GitHub lists it for the Codex extension rather than Copilot Chat. Sonnet 4.6 remains listed with its annual-plan restriction. Public listing does not establish a user's subscription access or exact picker contents.
 
@@ -35,14 +35,38 @@ The aggregate API data's attribution and licensing are documented in [THIRD_PART
 
 Documentation screenshots use fictional models and synthetic scores to demonstrate charts. Keep those fixtures separate from production catalog data and downloaded score caches, and visibly label them as illustrative sample data. A screenshot refresh does not constitute a model evaluation or a catalog review.
 
+## Automatic synchronization and publication
+
+The **Sync and publish catalog** workflow runs daily at 06:23 UTC, on relevant catalog/importer changes pushed to `main`, and through **Run workflow**. GitHub Pages must be enabled once with **GitHub Actions** as its publishing source. No extra API key or custom repository secret is needed. GitHub can delay scheduled jobs; this is a daily check, not a real-time feed.
+
+`npm run catalog:sync` resolves `github/docs`'s current `main` commit once and downloads all source files from that exact SHA. The importer uses GitHub's release, plan, client, retirement, and pricing YAML tables, the documented extended-capability table, the supporting restrictions and pricing footnotes, and official display-name variables. It writes `artifacts/site/catalog/v2.json`; it does not overwrite the human-maintained `data/catalog.json` or commit generated data to the repository.
+
+- Names, providers, release status, plan/client availability, supported extended capabilities, token rates, cache rates, pricing thresholds, and recognized promotion expiry are synchronized. The displayed facts retain links pinned to the upstream SHA and CC BY 4.0 attribution.
+- Restriction footnotes are preserved, including annual-plan exceptions and Fable's data-retention/access conditions. Copilot Chat exclusions such as the Codex-only GPT-5.4 nano are excluded, as are models explicitly unsupported in VS Code or absent from the current release table. Missing plan/client rows are shown as unknown; for example, the pinned October 18 source lacks a GPT-6.1 Sol client row.
+- Existing aliases, task guidance, editorial order, and the source links supporting that guidance stay curated. New models have no guessed runtime aliases or task recommendations. They appear in the public catalog, but automatic matching to a discovered runtime model requires a reviewed alias. Capabilities describe GitHub's advertised options, not the current runtime input limit.
+- Promotions are accepted only when their documented rates, pricing table, units, and supported end-date wording agree. “Until” dates are treated conservatively as ending before that date. Missing prices become unavailable; expired promotional prices remain hidden by the extension. Unrecognized pricing conditions, fields, table structures, or restriction templates abort publication for a maintainer to review.
+
+The workflow loads the previously deployed `/catalog/v2.json` before generating a new feed. Same-day retries retain the revision when the content is unchanged; changed content increments the highest published or bundled sequence. Future-dated feeds, invalid data, and failures downloading the prior feed abort the run. Only HTTP 404 permits initial publication without a previous feed. Validation completes before deployment, so a failed synchronization leaves the previous GitHub Pages deployment intact.
+
+The deployed site contains the automatic **`/catalog/v2.json`** plus the unchanged bundled **`/catalog/v1.json`** for older clients, licenses, and third-party notices. Release builds use the v2 feed; local builds remain offline unless a feed URL is configured. The workflow reads the actual Pages base URL, including a configured custom domain, when checking the previous revision. Keep the extension's `LLMBENCH_CATALOG_URL` override aligned if hosting changes; see the [development guide](development.md).
+
+To run a synchronization locally against a previous feed:
+
+```sh
+npm run catalog:sync -- artifacts/site/catalog/v2.json https://mebaysan.github.io/modelbeacon/catalog/v2.json
+npm run catalog:check -- artifacts/site/catalog/v2.json
+```
+
+Omit the URL only for a local preview, not when replacing an existing published feed. The importer tests use pinned offline GitHub fixtures and cover unknown formats, promotions, missing data, retirements, and revision ordering. No LLM inference, Terminal-Bench collection, or organization data enters this pipeline.
+
 ## Manual review workflow
 
 1. Review GitHub's model listings, aliases, support restrictions, capabilities, task advice, and current prices against the pinned catalog sources. Check source licensing when changing sources.
 2. Edit approved facts and source records in `data/catalog.json`. Increment `revision` and set `reviewedAt` only after completing the review. Update pricing review dates only when rates were checked.
 3. Run `npm run catalog:check` and the project tests. Inspect changed model cards and comparison tables, then review the diff.
-4. Release the updated extension or publish the reviewed catalog through the existing publishing workflow. If source verification fails, retain the previous valid catalog.
+4. Push the reviewed catalog to `main` to synchronize and publish it, or run **Sync and publish catalog** manually. Publish a new extension version when changing the bundled fallback. If source verification fails, retain the previous valid catalog.
 
-There is no scheduled upstream import. The extension marks the catalog stale after 14 days without review and preserves its last valid catalog on network or schema failures. Local builds have no catalog endpoint by default; feed configuration is described in the [development guide](development.md).
+The extension distinguishes synchronization freshness from human review age and preserves its last valid catalog on network or schema failures. Automatic synchronization does not re-review guidance or establish exact deployed model equivalence.
 
 ## Licensing and launch limitations
 

@@ -72,8 +72,33 @@ test('catalog revision ordering compares dates first and same-day sequences nume
   assert.ok(compareCatalogRevision(tomorrow, newer) > 0);
 });
 
+test('schema 2 distinguishes synchronized facts and pricing from human review', () => {
+  const synced = { ...catalog(), schemaVersion: 2, revision: '2026-10-18.2', syncedAt: '2026-10-18' };
+  const parsed = parseCatalog(synced);
+  assert.equal(parsed.reviewedAt, '2026-10-17');
+  parsed.models[0].pricing = { sourceId: source.id, syncedAt: '2026-10-18', tiers: [{ name: 'Standard', inputUsdPerMillion: 1, outputUsdPerMillion: 4 }] };
+  assert.doesNotThrow(() => parseCatalog(parsed));
+  assert.ok(compareCatalogRevision(parsed, catalog()) > 0);
+  assert.throws(() => parseCatalog({ ...parsed, schemaVersion: 1 }), /schemaVersion 2/);
+  assert.throws(() => parseCatalog({ ...parsed, syncedAt: '2026-02-30' }), /calendar date/);
+  assert.throws(() => parseCatalog({ ...parsed, syncedAt: '2026-10-16' }), /precede/);
+  assert.throws(() => parseCatalog({ ...parsed, revision: '2026-10-17.1' }), /revision/);
+  delete parsed.models[0].pricing.syncedAt;
+  assert.throws(() => parseCatalog(parsed), /requires reviewedAt or syncedAt/);
+});
+
+test('catalog import actions accept only native prompts and validated removal identities', () => {
+  for (const type of ['addCatalogUrl', 'importCatalogFile', 'refreshExtraCatalogs']) {
+    assert.equal(isWebviewRequest({ type }), true);
+    assert.equal(isWebviewRequest({ type, path: '/private/file.json' }), false);
+    assert.equal(isWebviewRequest({ type, url: 'https://unrequested.example' }), false);
+  }
+  assert.equal(isWebviewRequest({ type: 'removeExtraCatalog', id: '12345678-1234-1234-1234-123456789abc' }), true);
+  assert.equal(isWebviewRequest({ type: 'removeExtraCatalog', id: '../private' }), false);
+});
+
 test('catalog validation reports malformed, unsupported, and oversized data', () => {
-  for (const input of [null, [], 'catalog', { ...catalog(), schemaVersion: 2 }]) {
+  for (const input of [null, [], 'catalog', { ...catalog(), schemaVersion: 3 }]) {
     assert.throws(() => parseCatalog(input), /Invalid catalog:/);
   }
   const oversized = catalog();
@@ -262,6 +287,8 @@ test('webview requests allow only known messages with their exact payload', () =
   assert.equal(isWebviewRequest({ type: 'compareScores', keys: ['["catalog","test"]'] }), true);
   assert.equal(isWebviewRequest({ type: 'compareScores', keys: ['one', 'two', 'three'] }), true);
   for (const metric of ['intelligence', 'coding', 'agentic', 'gpqa', 'toolUse']) assert.equal(isWebviewRequest({ type: 'openScoreSource', metric }), true);
+  assert.equal(isWebviewRequest({ type: 'openScoreSource', metric: 'gpqa', modelId: 'vendor/model' }), true);
+  for (const topic of ['license', 'attribution']) assert.equal(isWebviewRequest({ type: 'openScoreInfo', topic }), true);
   for (const input of [null, [], {}, { type: 'executeCommand' }, { type: 'ready', command: 'bad' },
     { type: 'openSource', sourceId: '' }, { type: 'openSource', sourceId: 4 },
     { type: 'clearLocalModels', sourceId: 'official' },
@@ -273,7 +300,17 @@ test('webview requests allow only known messages with their exact payload', () =
     { type: 'compareScores', keys: ['one', 'two', 'three', 'four'] }, { type: 'compareScores', keys: [''] },
     { type: 'compareScores', keys: ['x'.repeat(1801)] }, { type: 'compareScores', keys: [null] },
     { type: 'compareScores', keys: 'one' }, { type: 'compareScores', keys: ['one'], apiKey: 'not-allowed' },
-    { type: 'openScoreSource', metric: 'constructor' }, { type: 'setCompositeScores', enabled: 'true' },
+    { type: 'openScoreSource', metric: 'constructor' },
+    { type: 'openScoreSource', metric: 'gpqa', modelId: '' },
+    { type: 'openScoreSource', metric: 'gpqa', modelId: ' ' },
+    { type: 'openScoreSource', metric: 'gpqa', modelId: 4 },
+    { type: 'openScoreSource', metric: 'gpqa', modelId: 'x'.repeat(201) },
+    { type: 'openScoreSource', metric: 'gpqa', modelId: 'vendor/model\n' },
+    { type: 'openScoreSource', metric: 'gpqa', url: 'https://unrequested.example' },
+    { type: 'openScoreSource', metric: 'gpqa', modelId: 'vendor/model', url: 'https://unrequested.example' },
+    { type: 'openScoreInfo', topic: 'constructor' },
+    { type: 'openScoreInfo', topic: 'license', url: 'https://unrequested.example' },
+    { type: 'setCompositeScores', enabled: 'true' },
     { type: 'openHelp', topic: 'https://example.com' }, { type: 'setAutoUpdate', enabled: 'true' }]) {
     assert.equal(isWebviewRequest(input), false);
   }

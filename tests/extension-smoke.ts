@@ -36,7 +36,8 @@ export async function run(): Promise<void> {
 
   const commands = await vscode.commands.getCommands(true);
   for (const command of ['llmBench.open', 'llmBench.refreshModels', 'llmBench.refreshCatalog', 'llmBench.clearLocalModels',
-    'llmBench.connectScores', 'llmBench.refreshScores', 'llmBench.clearScores']) {
+    'llmBench.connectScores', 'llmBench.refreshScores', 'llmBench.clearScores',
+    'llmBench.addCatalogUrl', 'llmBench.importCatalogFile', 'llmBench.refreshExtraCatalogs']) {
     assert.ok(commands.includes(command), `Missing command: ${command}`);
   }
   await vscode.commands.executeCommand('llmBench.clearLocalModels');

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import { build } from 'esbuild';
 import { runtimeKey } from '../src/core.ts';
+import { SCORE_DATA_LINKS, SCORE_METRICS } from '../src/scores.ts';
 import type { ExplorerState, HostMessage } from '../src/types.ts';
 
 const bundled = await readFile(new URL('../data/catalog.json', import.meta.url));
@@ -55,6 +56,7 @@ interface HostOptions {
   secrets?: Map<string, string>;
   beforeSecretStore?: () => Promise<void>;
   unreadableLinks?: boolean;
+  file?: { path: string; data: string; size?: number };
 }
 
 async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved = new Map<string, unknown>(), openEditor = true, options: HostOptions = {}) {
@@ -72,11 +74,21 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
   const picks: unknown[][] = [];
   const pickOptions: unknown[] = [];
   const warnings: string[] = [];
+  const openedUrls: string[] = [];
+  const fileDialogs: unknown[] = [];
+  let fileReads = 0;
   const subscriptions: { dispose(): void }[] = [];
   const disposable = { dispose() {} };
   const vscode = {
     workspace: {
-      fs: { readFile: async () => bundled },
+      fs: {
+        readFile: async (uri: unknown) => {
+          if (typeof uri === 'string') return bundled;
+          fileReads++;
+          return Buffer.from(options.file?.data ?? '');
+        },
+        stat: async () => ({ size: options.file?.size ?? Buffer.byteLength(options.file?.data ?? '') }),
+      },
       getConfiguration: () => ({
         get: (name: string, fallback: unknown) => configuration.has(name) ? configuration.get(name) : fallback,
         update: async (name: string, value: unknown) => {
@@ -86,7 +98,8 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
       }),
       onDidChangeConfiguration: (action: typeof configurationChanged) => { configurationChanged = action; return disposable; },
     },
-    Uri: { joinPath: (...parts: unknown[]) => parts.join('/') },
+    Uri: { joinPath: (...parts: unknown[]) => parts.join('/'), parse: (url: string) => url },
+    env: { openExternal: async (url: string) => { openedUrls.push(url); return true; } },
     ViewColumn: { Active: 1 },
     ConfigurationTarget: { Global: 1 },
     commands: { registerCommand: (name: string, action: () => unknown) => { commands.set(name, action); return disposable; } },
@@ -108,6 +121,7 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
       },
       showWarningMessage: (message: string) => { warnings.push(message); },
       showInputBox: async (input: unknown) => { inputs.push(input); return options.input?.(); },
+      showOpenDialog: async (input: unknown) => { fileDialogs.push(input); return options.file ? [{ path: options.file.path }] : undefined; },
       showQuickPick: async (items: unknown[], settings: unknown) => { picks.push(items); pickOptions.push(settings); return options.pick?.(items); },
     },
   };
@@ -154,6 +168,9 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
     picks,
     pickOptions,
     warnings,
+    openedUrls,
+    fileDialogs,
+    fileReads: () => fileReads,
     failWrites: (failed = true) => { failWrites = failed; },
     failSecrets: () => { failSecrets = true; },
     close: () => editor.view.dispose(),
@@ -165,6 +182,100 @@ const custom = {
   id: 'organization-model', name: 'Organization model', vendor: 'customendpoint',
   family: 'custom', version: '1', maxInputTokens: 128_000,
 };
+
+function extraCatalog(id = 'private-coder') {
+  return {
+    schemaVersion: 1, revision: '2026-10-17.1', reviewedAt: '2026-10-17', benchmarks: [],
+    sources: [{ id: 'docs', title: 'Organization documentation', url: 'https://example.com/models',
+      license: 'Internal', licenseUrl: 'https://example.com/license', retrievedAt: '2026-10-17' }],
+    models: [{ id, name: 'Private Coder', provider: 'Organization', aliases: [],
+      facts: [{ text: 'Organization-provided model.', sourceId: 'docs' }], guidance: [] }],
+  };
+}
+
+test('URL catalog appends through a native prompt, restores offline, and hides its private URL from the webview', async () => {
+  let downloads = 0;
+  const url = 'https://example.com/private/catalog.json?access=private-value';
+  const app = await host(async () => [], new Map(), true, {
+    input: async () => url,
+    fetcher: async (request, options) => {
+      downloads++;
+      assert.equal(request, url);
+      assert.equal(options?.redirect, 'error');
+      assert.equal(options?.credentials, 'omit');
+      return new Response(JSON.stringify(extraCatalog()));
+    },
+  });
+  const baseIds = app.state().catalog.models.map(model => model.id);
+  await app.editor().send({ type: 'addCatalogUrl', url: 'https://unrequested.example' });
+  assert.equal(downloads, 0, 'Webview cannot supply arbitrary URLs');
+  await app.command('llmBench.addCatalogUrl');
+  assert.equal(downloads, 1);
+  assert.deepEqual(app.state().catalog.models.map(model => model.id), [...baseIds, 'private-coder']);
+  assert.equal(app.state().extraCatalogs[0].kind, 'url');
+  assert.equal(app.state().catalog.models.at(-1)?.catalogLabel, 'example.com');
+  assert.doesNotMatch(JSON.stringify(app.state()), /private-value|private\/catalog/);
+  const restored = await host(async () => [], app.saved);
+  assert.equal(restored.state().catalog.models.at(-1)?.id, 'private-coder');
+  assert.equal(restored.state().extraCatalogs.length, 1);
+  await app.command('llmBench.refreshExtraCatalogs');
+  assert.equal(downloads, 2);
+});
+
+test('JSON imports read only the chosen file, validate before appending, and reject oversize files before reading', async () => {
+  const file = { path: '/private/folder/company.json', data: JSON.stringify(extraCatalog()) };
+  const app = await host(async () => [], new Map(), true, { file });
+  await app.editor().send({ type: 'importCatalogFile', path: file.path });
+  assert.equal(app.fileDialogs.length, 0);
+  await app.command('llmBench.importCatalogFile');
+  assert.equal(app.fileReads(), 1);
+  assert.equal(app.fileDialogs.length, 1);
+  assert.equal(app.state().extraCatalogs[0].label, 'company.json');
+  assert.equal(app.state().catalog.models.at(-1)?.id, 'private-coder');
+  assert.doesNotMatch(JSON.stringify([...app.saved.values()]), /private\/folder/);
+  const baseCount = app.state().catalog.models.length;
+  file.data = '{bad json}';
+  await app.command('llmBench.importCatalogFile');
+  assert.equal(app.state().catalog.models.length, baseCount);
+  assert.match(app.state().extraCatalogsMessage, /valid ModelBeacon catalog JSON/);
+  const large = await host(async () => [], new Map(), true, { file: { ...file, size: 2 * 1024 * 1024 + 1 } });
+  await large.command('llmBench.importCatalogFile');
+  assert.equal(large.fileReads(), 0);
+  assert.equal(large.state().extraCatalogs.length, 0);
+});
+
+test('removing an appended catalog updates both views and removes only its orphaned score references', async () => {
+  const extraKey = JSON.stringify(['catalog', 'private-coder']);
+  const baseId = JSON.parse(bundled.toString()).models[0].id;
+  const baseKey = JSON.stringify(['catalog', baseId]);
+  const retiredKey = JSON.stringify(['catalog', 'previously-removed-private-model']);
+  const saved = new Map<string, unknown>([['scoreLinks.v1', { [extraKey]: 'vendor/private-model', [baseKey]: 'vendor/public-model', [retiredKey]: 'vendor/retired-private' }]]);
+  const app = await host(async () => [], saved, true, {
+    file: { path: '/private/company.json', data: JSON.stringify(extraCatalog()) },
+  });
+  await app.command('llmBench.importCatalogFile');
+  const sidebar = app.resolveSidebar();
+  await sidebar.send({ type: 'ready' });
+  const id = app.state().extraCatalogs[0].id;
+  await sidebar.send({ type: 'removeExtraCatalog', id });
+  for (const state of [app.state(), sidebar.state()]) {
+    assert.equal(state.extraCatalogs.length, 0);
+    assert.equal(state.catalog.models.some(model => model.id === 'private-coder'), false);
+    assert.equal(state.scores.links[extraKey], undefined);
+    assert.equal(state.scores.links[baseKey], 'vendor/public-model');
+  }
+  assert.deepEqual(app.saved.get('scoreLinks.v1'), { [baseKey]: 'vendor/public-model' });
+  const restored = await host(async () => [], app.saved);
+  assert.equal(restored.state().extraCatalogs.length, 0);
+});
+
+test('cancelling catalog prompts keeps storage and the base catalog unchanged', async () => {
+  const app = await host(async () => []);
+  await app.command('llmBench.addCatalogUrl');
+  await app.command('llmBench.importCatalogFile');
+  assert.equal(app.state().extraCatalogs.length, 0);
+  assert.equal(app.saved.has('extraCatalogs.v1'), false);
+});
 
 test('host discovers every provider, persists only metadata, and restores it without discovery', async () => {
   const app = await host(async (...args) => {
@@ -340,6 +451,47 @@ function gate<T>() {
 
 const customScoreKey = JSON.stringify(['runtime', runtimeKey(custom)]);
 const scoreOptions: HostOptions = { input: async () => 'test-openrouter-secret', fetcher: async url => scoreResponse(url), pick: async items => items[0] };
+
+test('score license and attribution open fixed links and reject webview-supplied destinations', async () => {
+  const app = await host(async () => []);
+  await app.editor().send({ type: 'openScoreInfo', topic: 'license' });
+  await app.editor().send({ type: 'openScoreInfo', topic: 'attribution' });
+  await app.editor().send({ type: 'openScoreSource', metric: 'gpqa' });
+  assert.deepEqual(app.openedUrls, [SCORE_DATA_LINKS.license, SCORE_DATA_LINKS.attribution, SCORE_METRICS.gpqa.sourceUrl]);
+  for (const message of [
+    { type: 'openScoreInfo', topic: 'license', url: 'https://unrequested.example' },
+    { type: 'openScoreInfo', topic: 'constructor' },
+    { type: 'openScoreSource', metric: 'gpqa', url: 'https://unrequested.example' },
+    { type: 'openScoreSource', metric: 'gpqa', modelId: 'vendor/example', url: 'https://unrequested.example' },
+  ]) await app.editor().send(message);
+  assert.equal(app.openedUrls.length, 3);
+  assert.equal(app.inputs.length, 0);
+});
+
+test('score sources resolve exact cached references and retain legacy links without fetching or prompting', async () => {
+  const identity = { modelId: 'vendor/example', modelName: 'Example', value: 75, sampleSize: 100, evaluatedAt: '2026-10-17T00:00:00.000Z' };
+  const snapshot = {
+    asOf: '2026-10-17T00:00:00.000Z', fetchedAt: '2026-10-17T00:00:00.000Z', includesComposites: false,
+    records: [
+      { ...identity, metric: 'gpqa', source: 'Evaluation provider', sourceUrl: 'https://example.com/evaluations/gpqa', sourceVersion: 'v2' },
+      { ...identity, metric: 'toolUse' },
+    ],
+  };
+  let downloads = 0;
+  const app = await host(async () => [], new Map([['scoreCache.v1', snapshot]]), true, {
+    fetcher: async () => { downloads++; throw new Error('No score refresh expected'); },
+  });
+  await app.editor().send({ type: 'openScoreSource', metric: 'gpqa', modelId: 'vendor/example' });
+  await app.editor().send({ type: 'openScoreSource', metric: 'toolUse', modelId: 'vendor/example' });
+  await app.editor().send({ type: 'openScoreSource', metric: 'coding', modelId: 'vendor/example' });
+  await app.editor().send({ type: 'openScoreSource', metric: 'gpqa', modelId: 'vendor/unknown' });
+  assert.deepEqual(app.openedUrls, ['https://example.com/evaluations/gpqa', SCORE_METRICS.toolUse.sourceUrl]);
+  assert.deepEqual(app.state().scores.snapshot, snapshot);
+  assert.deepEqual(app.saved.get('scoreCache.v1'), snapshot);
+  assert.equal(downloads, 0);
+  assert.equal(app.inputs.length, 0);
+  assert.equal(app.picks.length, 0);
+});
 
 test('score connection keeps the key in SecretStorage and sends no workspace or private model identity', async () => {
   const calls: { url: string; options: RequestInit }[] = [];

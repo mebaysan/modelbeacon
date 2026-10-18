@@ -78,7 +78,7 @@ export class CatalogStore {
         if (!response.ok) throw new Error(`Catalog server returned HTTP ${response.status}.`);
         const next = parseCatalog(JSON.parse(await readLimitedText(response)));
         if (compareCatalogRevision(next, this.catalog) < 0) throw new Error('Server catalog is older than the current catalog.');
-        if (Date.parse(next.reviewedAt) > this.now() + DAY) throw new Error('Server catalog has a future review date.');
+        if (Date.parse(next.syncedAt ?? next.reviewedAt) > this.now() + DAY) throw new Error('Server catalog has a future review or sync date.');
         this.catalog = next;
         this.origin = 'online';
         const etag = response.headers.get('etag');
@@ -97,7 +97,7 @@ export class CatalogStore {
   }
 }
 
-async function readLimitedText(response: Response): Promise<string> {
+export async function readLimitedText(response: Response): Promise<string> {
   if (Number(response.headers.get('content-length')) > MAX_BYTES) {
     await response.body?.cancel();
     throw new Error('Catalog exceeds the 2 MiB size limit.');
