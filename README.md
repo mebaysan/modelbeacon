@@ -2,6 +2,8 @@
 
 **Compare coding models, explore their scores, and choose with context.**
 
+[Install ModelBeacon from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=mebaysan.modelbeacon)
+
 ![ModelBeacon — compare models with sourced guidance and published score charts](media/hero.png)
 
 ModelBeacon brings model comparisons into VS Code. Explore sourced task guidance, compare capabilities and Copilot prices, and connect published evaluation scores to see the evidence in charts. Include models exposed by your organization or installed providers, with your model history and reference choices saved locally.
@@ -63,13 +65,13 @@ A linked reference describes an external evaluation, not your Copilot or organiz
 
 Requires **desktop VS Code 1.140+**. You can browse the public catalog without Copilot.
 
-1. Install `modelbeacon.vsix` using **Extensions: Install from VSIX…**.
+1. Install [ModelBeacon from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=mebaysan.modelbeacon).
 2. Click the **ModelBeacon** icon in the Activity Bar. Choose **Open in Editor** for the full dashboard.
 3. Pick a task, or open **Explore & compare** and add up to three models.
 4. Choose **Detect My Models** to include models returned by your installed providers. Enable **Available models only** to filter to the current detection results.
 5. Inspect the guidance and sources, then use **Open Copilot model picker** to choose a model in Copilot.
 
-Version **0.4.4** is distributed as a local VSIX; Marketplace publication is pending. [Building from source or upgrading an earlier local build?](docs/development.md)
+You can also install `modelbeacon.vsix` using **Extensions: Install from VSIX…**. [Building from source or upgrading an earlier local build?](docs/development.md)
 
 ## Your model history stays local
 
@@ -115,4 +117,4 @@ Code: [MIT](LICENSE). Data: [source licenses and attribution](THIRD_PARTY_NOTICE
 
 ## Publishing from GitHub
 
-The public [mebaysan/modelbeacon repository](https://github.com/mebaysan/modelbeacon) hosts the listing images. The **Publish to VS Code Marketplace** workflow publishes stable GitHub Releases after validation, using repository secrets. See [publisher setup and release steps](docs/development.md#publishing).
+The public [mebaysan/modelbeacon repository](https://github.com/mebaysan/modelbeacon) hosts the listing images. Push a stable version increase to `main` and **Release and publish extension** validates the build, creates a GitHub Release with a downloadable VSIX, and publishes that package to Marketplace using repository secrets. See [publisher setup and release steps](docs/development.md#publishing).

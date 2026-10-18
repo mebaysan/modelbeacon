@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Automatically create a tagged GitHub Release, attach the VSIX, and publish it to Marketplace when a stable version increase reaches `main`.
+- Reuse existing release packages on retries and reject tags that point to a different commit.
+
 ## 0.4.4
 
 - Resolve published references automatically from model IDs and names when comparing or opening score charts; no reference-picker prompt is required.

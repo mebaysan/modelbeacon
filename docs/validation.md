@@ -24,9 +24,16 @@ On macOS, native VS Code testing used an isolated profile with the existing Mode
 
 ## Marketplace workflow checks
 
-- `marketplace-publish.yml` runs only for stable published GitHub Releases in this repository. Verify the tag equals `v` plus the package version and both lockfile version fields agree.
-- Keep credentials scoped to the publish step as repository secrets. Publish the already-tested VSIX with Entra authentication; never inject publisher credentials into the extension or its artifacts.
-- Validate workflow syntax with actionlint and exercise the inline release validator with matching and mismatching versions before changing release rules. Both release workflows passed actionlint 1.7.7, and the tag/identity/lockfile validator passed nine positive/negative cases locally. Local workflow validation does not prove publisher authorization or a successful Marketplace release.
+- `marketplace-publish.yml` checks every push to `main` in this repository and releases only when the stable package version increases. It also accepts manually published stable GitHub Releases. Verify numeric version ordering, unchanged-version skips, rejection of decreases or invalid versions, matching release tags, publisher identity, and both lockfile version fields.
+- Release automation must bind the tag to the triggering commit, attach the tested VSIX, reuse an existing asset on retries, and reject tags at another commit. Marketplace must publish that same asset and skip an already-published version. Exercise these paths through the focused release-script tests without creating real releases.
+- Keep Entra credentials scoped to the publish step as repository secrets. Scope `contents: write` to the release job for GitHub's built-in token; never inject publisher credentials into the extension or its artifacts. Keep GitHub Release creation and Marketplace publication in the same run because a release created by this token does not trigger another workflow.
+- Validate workflow syntax with actionlint when changing release rules, and run `npm test` for the release-script checks. Local tests and workflow validation do not prove repository tag permissions, publisher authorization, or a successful GitHub or Marketplace release. Verify those through the first authorized version release with the configured secrets.
+
+Actionlint 1.7.12 does not yet recognize GitHub's documented [`concurrency.queue: max`](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency), which keeps pending release runs queued. Until its schema supports this property, check all workflows with only that diagnostic excluded:
+
+```sh
+actionlint -ignore '^unexpected key "queue" for "concurrency" section\.' .github/workflows/*.yml
+```
 
 ## Listing and media checks
 

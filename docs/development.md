@@ -138,10 +138,16 @@ Renew the client secret before its expiry and update the repository secret. The 
 
 ### Publish a version
 
-1. Complete [release validation](validation.md). Set the same new version in `package.json` and `package-lock.json`, and update `CHANGELOG.md`.
-2. Commit and push the changes, including the workflows and listing images.
-3. Create and publish a **stable GitHub Release** with a matching tag, for example `v0.4.4` for version `0.4.4`. Drafts and prereleases do not publish to Marketplace, and pushing a tag alone does not trigger this workflow.
-4. **Publish to VS Code Marketplace** checks the tag, publisher, package name, and lockfile versions; runs type, catalog, unit, browser, and native VS Code checks; packages a VSIX; uploads it as a workflow artifact; and publishes that exact file. Concurrent releases are serialized. Rerunning an already published version skips it instead of overwriting it.
+1. Complete [release validation](validation.md). Increase the stable version in both package files, for example with `npm version patch --no-git-tag-version`, and move the relevant `CHANGELOG.md` entries into that version's section. Use `minor` or `major` instead of `patch` when appropriate.
+2. Commit the changes, including the workflows and listing images, and push or merge them to `main`.
+3. **Release and publish extension** compares the resulting `package.json` version with the version before the push. An increased stable version starts a release; an unchanged version skips publication. Invalid versions, decreases, or mismatched lockfile versions fail validation. Make one release version per push.
+4. The workflow checks the publisher and package name; runs type, catalog, unit, browser, and native VS Code checks; and packages a VSIX with image and documentation links pinned to the triggering commit. It creates the matching `vVERSION` tag and GitHub Release with generated release notes, attaches `modelbeacon.vsix`, and publishes that exact package to Marketplace. Release jobs are queued so one version publishes at a time.
+
+GitHub supplies the repository token used to create the tag, release, and asset. Only the release job has `contents: write`; no extra GitHub token secret is needed. Marketplace still requires the three Entra secrets above. Repository rules must allow the workflow to create release tags. GitHub releases created with `GITHUB_TOKEN` do not start another release-triggered workflow, so creation and Marketplace publication happen in the same run. [GitHub workflow-trigger behavior](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+
+If publication fails, fix the cause and rerun the failed workflow. It reuses an existing release VSIX and skips a Marketplace version that is already published. A tag pointing to a different commit fails instead of being moved. Do not replace a published version; increase the version for a corrected package.
+
+Publishing a stable GitHub Release manually remains supported: its tag must equal `v` plus the package version, for example `v0.4.4` for `0.4.4`. Drafts and prereleases do not publish to Marketplace, and pushing a tag alone does not trigger publication. Normal releases need only the version increase on `main`.
 
 The optional repository **variable** `LLMBENCH_CATALOG_URL` can supply a deployed HTTPS catalog endpoint. Leave it unset for bundled-catalog-only releases. Images do not depend on this setting. To deploy the reviewed catalog separately, enable Pages with GitHub Actions as its source and run **Publish reviewed catalog**; then configure the deployed `/catalog/v1.json` URL.
 
