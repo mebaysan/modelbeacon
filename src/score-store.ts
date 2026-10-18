@@ -13,7 +13,7 @@ class HttpError extends Error {
 
 export class ScoreStore {
   snapshot?: ScoreSnapshot;
-  message = 'Choose Show score charts on a model to load published scores from OpenRouter.';
+  message = 'Compare models or choose Show score charts to load published scores from OpenRouter.';
   private generation = 0;
   private pending?: Promise<void>;
   private controller?: AbortController;
@@ -32,7 +32,7 @@ export class ScoreStore {
         const snapshot = parseScoreSnapshot(cached);
         validateDates(snapshot, this.now());
         this.snapshot = snapshot;
-        this.message = 'Using published scores saved on this device. Show score charts loads the latest results.';
+        this.message = 'Using published scores saved on this device. Compare models or choose Show score charts to load the latest results.';
       }
     } catch {
       this.message = 'Saved scores could not be read. Refresh to rebuild the local cache.';

@@ -236,6 +236,10 @@ export function isWebviewRequest(value: unknown): value is WebviewRequest {
     case 'unlinkScores':
       return keys.length === 2 && typeof request.key === 'string'
         && request.key.length > 0 && request.key.length <= 1800;
+    case 'compareScores':
+      return keys.length === 2 && Array.isArray(request.keys) && request.keys.length > 0 && request.keys.length <= 3
+        && request.keys.every(key => typeof key === 'string' && key.length > 0 && key.length <= 1800)
+        && new Set(request.keys).size === request.keys.length;
     case 'openScoreSource':
       return keys.length === 2 && ['intelligence', 'coding', 'agentic', 'gpqa', 'toolUse'].includes(request.metric as string);
     case 'openSource':

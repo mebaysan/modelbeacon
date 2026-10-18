@@ -15,7 +15,7 @@ help:
 	  '  make build           Build the extension and webview into dist/' \
 	  '  make check           Check TypeScript and validate the public catalog' \
 	  '  make test            Run checks, unit tests, UI tests, and VS Code smoke tests' \
-	  '  make test-unit       Run unit, host, and packaging tests' \
+	  '  make test-unit       Run unit and host tests' \
 	  '  make test-ui         Build and test desktop, narrow, and sidebar layouts' \
 	  '  make test-extension  Build and test in an isolated VS Code profile' \
 	  '  make preview         Build and serve the browser preview on port 4173' \

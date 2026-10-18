@@ -1,0 +1,72 @@
+name: Publish to VS Code Marketplace
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-mebaysan-modelbeacon
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'mebaysan/modelbeacon' && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LLMBENCH_CATALOG_URL: ${{ vars.LLMBENCH_CATALOG_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Validate release identity and version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+          assert.equal(manifest.publisher, 'mebaysan');
+          assert.equal(manifest.name, 'modelbeacon');
+          assert.match(manifest.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+          assert.equal(process.env.RELEASE_TAG, `v${manifest.version}`, 'Release tag must match package.json');
+          assert.equal(lock.version, manifest.version);
+          assert.equal(lock.packages[''].version, manifest.version);
+          NODE
+      - run: npm ci
+      - run: npm run check
+      - run: npm run catalog:check
+      - run: npm test
+      - run: npx --no-install playwright install --with-deps chromium
+      - run: npm run test:ui
+      - run: xvfb-run -a npm run test:extension
+      - name: Package with images and links pinned to the release commit
+        run: npm run package:release -- --githubBranch "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modelbeacon-marketplace
+          path: modelbeacon.vsix
+          if-no-files-found: error
+      - name: Publish the tested VSIX
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository secret: $name"
+              exit 1
+            fi
+          done
+          npx --no-install vsce publish --azure-credential --packagePath modelbeacon.vsix --skip-duplicate

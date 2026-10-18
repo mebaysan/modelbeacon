@@ -133,6 +133,143 @@ test('bundled catalog compares pricing and capabilities without benchmark placeh
   await expect(page.locator('.comparison-section')).not.toContainText('No matching benchmark evidence');
 });
 
+test('compare buttons load scores with a saved connection and display the host result without a separate score action', async ({ page }) => {
+  await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, connected: true } }));
+  const name = await page.locator('.recommendation .model-title').first().innerText();
+  const key = await page.evaluate(name => JSON.stringify(['catalog', window.__explorerState.catalog.models.find(model => model.name === name)!.id]), name);
+  await page.evaluate(() => { window.__messages = []; });
+  await page.getByRole('button', { name: `Add ${name} to comparison`, exact: true }).click();
+  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'compareScores', keys: [key] }]);
+  await page.getByRole('button', { name: 'View comparison →', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages)).toEqual([
+    { type: 'compareScores', keys: [key] }, { type: 'compareScores', keys: [key] },
+  ]);
+  const evidence = page.locator('.comparison-section > .score-evidence');
+  await expect(evidence.locator('.score-empty')).toContainText('automatically loads scores');
+  await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, loading: true } }));
+  await expect(evidence.locator('.score-loading')).toBeVisible();
+  await exampleScores(page);
+  await page.evaluate(name => {
+    const state = window.__explorerState;
+    const model = state.catalog.models.find(model => model.name === name)!;
+    state.scores.links = {};
+    state.scores.snapshot!.records = state.scores.snapshot!.records.map(record => record.modelId === 'fixture/reference-a'
+      ? { ...record, modelId: `${model.provider.toLowerCase()}/${model.id}`, modelName: model.name } : record);
+    window.__setExplorerState(state);
+  }, name);
+  await expect(evidence.locator('.score-chart')).toHaveCount(2);
+  await expect(evidence.locator('[data-metric="gpqa"]')).toBeVisible();
+  await expect(evidence.locator('[data-metric="toolUse"] .score-number')).toHaveText('63.5%');
+  await expect(evidence.locator('.score-reference')).toContainText(`Automatic reference: ${name}`);
+  await expect(page.locator('.score-next-step')).toContainText('Matching published results appear without selecting a reference');
+  const card = page.locator('.browse-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
+  await card.locator('summary').click();
+  await expect(card.locator('[data-metric="gpqa"] .score-number')).toHaveText('0.0%');
+  expect(await page.evaluate(() => window.__explorerState.scores.links)).toEqual({});
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await page.evaluate(() => { window.__messages = []; });
+  await page.getByRole('button', { name: 'View comparison →', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'compareScores', keys: [key] }]);
+  await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, message: 'Score refresh failed. Saved scores are still available.' } }));
+  await expect(evidence.locator('.score-feedback')).toHaveText('Score refresh failed. Saved scores are still available.');
+  await expect(evidence.locator('[data-metric="gpqa"] .score-number')).toHaveText('0.0%');
+});
+
+test('comparison additions send the current selection while removals, rendering, and restored selections stay offline', async ({ page }) => {
+  const keys = ['gpt-5.6-sol', 'gpt-5.6-terra'].map(id => JSON.stringify(['catalog', id]));
+  await page.evaluate(() => { window.__messages = []; });
+  await chooseModels(page, ['GPT-5.6 Sol', 'GPT-5.6 Terra']);
+  expect(await page.evaluate(() => window.__messages)).toEqual([
+    { type: 'compareScores', keys: [keys[0]] }, { type: 'compareScores', keys },
+  ]);
+  await page.reload();
+  await expect(page.locator('.comparison-table thead th')).toHaveCount(3);
+  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'ready' }]);
+  await page.evaluate(() => { window.__messages = []; window.__setExplorerState(window.__explorerState); });
+  await page.getByRole('tab', { name: 'Choose for a task' }).click();
+  await explore(page);
+  await page.getByRole('searchbox').fill('GPT-5.6');
+  await page.locator('.comparison-table').getByRole('button', { name: 'Remove GPT-5.6 Sol from comparison', exact: true }).click();
+  await page.getByRole('button', { name: 'View comparison →', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'compareScores', keys: [keys[1]] }]);
+  await page.evaluate(() => { window.__messages = []; });
+  await page.getByRole('button', { name: 'Clear comparison', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages)).toEqual([]);
+  await expect(page.locator('.comparison-section')).toHaveCount(0);
+});
+
+test('manual score references override automatic matches and resetting restores the automatic result', async ({ page }) => {
+  await exampleScores(page);
+  const key = JSON.stringify(['catalog', 'gpt-5.6-sol']);
+  await page.evaluate(key => {
+    const state = window.__explorerState;
+    state.scores.snapshot!.records.push({ modelId: 'openai/gpt-5.6-sol', modelName: 'GPT-5.6 Sol', metric: 'gpqa', value: 42 });
+    state.scores.links = { [key]: 'fixture/reference-b' };
+    window.__setExplorerState(state);
+  }, key);
+  await chooseModels(page, ['GPT-5.6 Sol']);
+  const evidence = page.locator('.comparison-section > .score-evidence');
+  await expect(evidence.locator('[data-metric="gpqa"] .score-number')).toHaveText('80.5%');
+  await expect(evidence.locator('.score-reference')).toContainText('Your reference: Fixture reference B');
+  await evidence.getByRole('button', { name: 'Reset score reference to automatic for GPT-5.6 Sol', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'unlinkScores', key });
+  await expect(evidence.locator('[data-metric="gpqa"] .score-number')).toHaveText('42.0%');
+  await expect(evidence.locator('.score-reference')).toContainText('Automatic reference: GPT-5.6 Sol');
+  await expect(evidence.getByRole('button', { name: /^Reset score reference/ })).toHaveCount(0);
+  expect(await page.evaluate(() => window.__explorerState.scores.links)).toEqual({});
+  await page.evaluate(key => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, links: { [key]: 'fixture/missing-reference' } } }), key);
+  await expect(evidence.locator('[data-metric="gpqa"] .score-number')).toHaveText('Unavailable');
+  await expect(evidence.locator('.score-reference')).toContainText('Your reference: fixture/missing-reference');
+});
+
+test('ambiguous automatic references remain unavailable while matched models render charts', async ({ page }) => {
+  await exampleScores(page);
+  await page.evaluate(() => {
+    const state = window.__explorerState;
+    state.scores.links = {};
+    state.scores.snapshot!.records = [
+      { modelId: 'openai/sol-snapshot-a', modelName: 'GPT-5.6 Sol', metric: 'gpqa', value: 20 },
+      { modelId: 'openai/sol-snapshot-b', modelName: 'GPT-5.6 Sol', metric: 'intelligence', value: 30 },
+      { modelId: 'openai/gpt-5.6-terra', modelName: 'GPT-5.6 Terra', metric: 'gpqa', value: 80 },
+    ];
+    window.__setExplorerState(state);
+  });
+  await chooseModels(page, ['GPT-5.6 Sol', 'GPT-5.6 Terra']);
+  const evidence = page.locator('.comparison-section > .score-evidence');
+  await expect(evidence.locator('[data-metric="gpqa"] .score-number')).toHaveText(['Unavailable', '80.0%']);
+  await expect(evidence.locator('.score-reference').first()).toContainText('No unambiguous published reference found');
+  await expect(evidence.locator('.score-reference').last()).toContainText('Automatic reference: GPT-5.6 Terra');
+  await expect(evidence.getByRole('button', { name: 'Link score reference for GPT-5.6 Sol', exact: true })).toBeEnabled();
+  await expect(evidence.locator('[data-metric="gpqa"] .score-bar')).toHaveCount(1);
+  await page.getByRole('checkbox', { name: 'Include composite indexes' }).check();
+  await expect(evidence.locator('[data-metric="gpqa"] .score-number')).toHaveText(['Unavailable', '80.0%']);
+  expect(await page.evaluate(() => window.__explorerState.scores.links)).toEqual({});
+});
+
+test('custom models display an unambiguous automatic reference without saving a link or sending model names', async ({ page }) => {
+  await exampleScores(page);
+  await page.evaluate(() => {
+    const state = window.__explorerState;
+    state.scores.links = {};
+    state.scores.snapshot!.records = [{ modelId: 'z-ai/glm-5.3', modelName: 'GLM 5.3', metric: 'gpqa', value: 70 }];
+    state.discovered = [{ id: 'private-coder', name: 'GLM 5.3', vendor: 'organization', version: '', family: 'private', maxInputTokens: 32_000 }];
+    state.discoveryStatus = 'ready';
+    window.__setExplorerState(state);
+  });
+  await explore(page);
+  await page.evaluate(() => { window.__messages = []; });
+  await page.getByRole('button', { name: 'Add GLM 5.3 (organization, version not reported) to comparison', exact: true }).click();
+  const key = JSON.stringify(['runtime', `runtime:${JSON.stringify(['organization', 'private-coder', ''])}`]);
+  expect(await page.evaluate(() => window.__messages)).toEqual([{ type: 'compareScores', keys: [key] }]);
+  await expect(page.locator('.comparison-section [data-metric="gpqa"] .score-number')).toHaveText('70.0%');
+  const card = page.locator('.unknown-card');
+  await card.getByRole('button', { name: 'Show score charts for GLM 5.3 (organization, version not reported)', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'showScores', key });
+  await expect(card.locator('[data-metric="gpqa"] .score-number')).toHaveText('70.0%');
+  await expect(card.locator('.score-reference')).toContainText('Automatic reference: GLM 5.3');
+  expect(await page.evaluate(() => window.__explorerState.scores.links)).toEqual({});
+});
+
 test('discovery filters known models and preserves unknown runtime identities as text', async ({ page }) => {
   await page.evaluate(() => {
     const state = window.__explorerState;
@@ -198,6 +335,10 @@ test('custom runtimes compare alongside catalog models without borrowing matchin
   await expect(page.locator('.unknown-card')).toHaveCount(1);
   await page.getByRole('button', { name: 'Add GPT-5.6 Sol to comparison', exact: true }).click();
   await page.getByRole('button', { name: 'Add GPT-5.6 Sol (private-provider, local-v1) to comparison', exact: true }).click();
+  expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'compareScores', keys: [
+    JSON.stringify(['catalog', 'gpt-5.6-sol']),
+    JSON.stringify(['runtime', `runtime:${JSON.stringify(['private-provider', 'gpt-5.6-sol', 'local-v1'])}`]),
+  ] });
   const table = page.locator('.comparison-table');
   await expect(table.locator('thead th')).toHaveCount(3);
   await expect(table.getByRole('row', { name: /^Runtime identity/ })).toContainText('private-provider');
@@ -448,7 +589,7 @@ test('custom score references never inherit from a shared name or another provid
   await custom.locator('summary').click();
   await expect(custom.locator('[data-metric="gpqa"] .score-number')).toHaveText('80.5%');
   await expect(custom).toContainText('Fixture reference B');
-  await custom.getByRole('button', { name: 'Unlink score reference for GPT-5.6 Sol (organization-a, v1)', exact: true }).click();
+  await custom.getByRole('button', { name: 'Reset score reference to automatic for GPT-5.6 Sol (organization-a, v1)', exact: true }).click();
   expect(await page.evaluate(() => window.__messages.at(-1))).toEqual({ type: 'unlinkScores', key });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
 });
@@ -509,8 +650,8 @@ test('saved score chart actions reveal details and request fresh scores even whe
   await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, links: {} } }));
   const status = page.getByRole('region', { name: 'Published score connection' });
   await expect(status).toContainText('3 saved scores · 2 public references');
-  await expect(status).toContainText('No models linked to these scores yet');
-  await expect(status).toContainText('automatically refresh scores');
+  await expect(status).toContainText('No unambiguous score references found');
+  await expect(status).toContainText('Comparing automatically refreshes scores');
   await explore(page);
   await page.getByRole('searchbox').fill('An unrelated search');
   await page.getByRole('tab', { name: 'Choose for a task' }).click();
@@ -534,9 +675,9 @@ test('saved score chart actions reveal details and request fresh scores even whe
   await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, loading: true } }));
   await expect(card.getByRole('button', { name: `Show score charts for ${modelName}`, exact: true })).toBeDisabled();
   await expect(card.locator('[data-metric="gpqa"]')).toBeVisible();
-  await expect(card.getByRole('button', { name: `Unlink score reference for ${modelName}`, exact: true })).toBeDisabled();
+  await expect(card.getByRole('button', { name: `Reset score reference to automatic for ${modelName}`, exact: true })).toBeDisabled();
   await page.evaluate(() => window.__setExplorerState({ ...window.__explorerState, scores: { ...window.__explorerState.scores, loading: false, message: 'Score refresh failed. Saved scores are still available.' } }));
-  await expect(card.getByRole('button', { name: `Unlink score reference for ${modelName}`, exact: true })).toBeEnabled();
+  await expect(card.getByRole('button', { name: `Reset score reference to automatic for ${modelName}`, exact: true })).toBeEnabled();
   await expect(card.locator('.score-feedback')).toHaveText('Score refresh failed. Saved scores are still available.');
   await expect(card.locator('[data-metric="gpqa"]')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);

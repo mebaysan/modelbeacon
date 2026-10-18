@@ -47,6 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let scoreWrites: Promise<void> = Promise.resolve();
   let connectingScores: Promise<boolean> | undefined;
   let refreshingScores: Promise<void> | undefined;
+  let scorePickers: Promise<void> = Promise.resolve();
   const scoreActions = new Map<string, Promise<void>>();
   const state: ExplorerState = {
     catalog: store.catalog,
@@ -191,18 +192,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!keyRemoved || !linksRemoved || !cacheRemoved) void vscode.window.showWarningMessage(state.scores.message);
   }
 
-  function hasScoreEntry(key: string): boolean {
-    return state.catalog.models.some(model => JSON.stringify(['catalog', model.id]) === key)
-      || [...state.discovered, ...state.localModels].some(model => JSON.stringify(['runtime', runtimeKey(model)]) === key);
+  function scoreEntry(key: string) {
+    return state.catalog.models.find(model => JSON.stringify(['catalog', model.id]) === key)
+      ?? [...state.discovered, ...state.localModels].find(model => JSON.stringify(['runtime', runtimeKey(model)]) === key);
+  }
+
+  async function compareScores(keys: string[]): Promise<void> {
+    if (clearingScores || disposed || !keys.every(key => scoreEntry(key))) return;
+    await requestScores();
   }
 
   function scoreAction(key: string, action: 'show' | 'link' | 'unlink'): Promise<void> {
-    if (clearingScores || disposed || !hasScoreEntry(key)) return Promise.resolve();
+    if (clearingScores || disposed || !scoreEntry(key)) return Promise.resolve();
     const existing = scoreActions.get(key);
     if (existing && action !== 'unlink') return existing;
     const generation = scoreGeneration;
     const localGeneration = discoveryGeneration;
-    const active = (): boolean => scoreActions.get(key) === pending && generation === scoreGeneration && !disposed && hasScoreEntry(key)
+    const active = (): boolean => scoreActions.get(key) === pending && generation === scoreGeneration && !disposed && !!scoreEntry(key)
       && (!key.startsWith('["runtime",') || localGeneration === discoveryGeneration);
     const pending = Promise.resolve().then(async () => {
       if (!active()) return;
@@ -210,32 +216,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         state.scores.includeComposites || !SCORE_METRICS[record.metric].composite))) {
         if (!await requestScores()) return;
       }
-      if (!active() || (action === 'show' && state.scores.links[key])) return;
-      let reference: string | undefined;
-      if (action !== 'unlink') {
-        const choices = new Map((state.scores.snapshot?.records ?? [])
-          .filter(record => state.scores.includeComposites || !SCORE_METRICS[record.metric].composite)
-          .map(record => [record.modelId, { label: record.modelName, description: record.modelId }]));
-        if (!choices.size) return;
-        const selected = await vscode.window.showQuickPick([...choices.values()].sort((a, b) => a.label.localeCompare(b.label)), {
-          title: 'Choose a published reference model', matchOnDescription: true,
-          placeHolder: 'Reference scores do not measure your Copilot or organization deployment.',
-        });
-        if (!selected) return;
-        reference = selected.description;
-      }
-      if (!active()) return;
-      await writeScores(async () => {
+      if (action === 'show') return;
+      const update = async () => {
         if (!active()) return;
-        const links = { ...state.scores.links };
-        if (reference) links[key] = reference;
-        else delete links[key];
-        try {
-          await context.globalState.update(SCORE_LINKS, links);
-          if (active()) state.scores.links = links;
-        } catch { void vscode.window.showWarningMessage('The reference link could not be saved on this device. Please try again.'); }
-      });
-      sendState();
+        let reference: string | undefined;
+        if (action !== 'unlink') {
+          const choices = new Map((state.scores.snapshot?.records ?? [])
+            .filter(record => state.scores.includeComposites || !SCORE_METRICS[record.metric].composite)
+            .map(record => [record.modelId, { label: record.modelName, description: record.modelId }]));
+          if (!choices.size) return;
+          const selected = await vscode.window.showQuickPick([...choices.values()].sort((a, b) => a.label.localeCompare(b.label)), {
+            title: `Choose a published reference for ${scoreEntry(key)!.name}`, matchOnDescription: true,
+            placeHolder: 'Reference scores do not measure your Copilot or organization deployment.',
+          });
+          if (!selected) return;
+          reference = selected.description;
+        }
+        if (!active()) return;
+        await writeScores(async () => {
+          if (!active()) return;
+          const links = { ...state.scores.links };
+          if (reference) links[key] = reference;
+          else delete links[key];
+          try {
+            await context.globalState.update(SCORE_LINKS, links);
+            if (active()) state.scores.links = links;
+          } catch { void vscode.window.showWarningMessage('The reference link could not be saved on this device. Please try again.'); }
+        });
+        sendState();
+      };
+      if (action === 'unlink') await update();
+      else {
+        const selecting = scorePickers.then(update);
+        scorePickers = selecting.catch(() => {});
+        await selecting;
+      }
     }).finally(() => { if (scoreActions.get(key) === pending) scoreActions.delete(key); });
     scoreActions.set(key, pending);
     return pending;
@@ -383,6 +398,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           case 'refreshScores': await refreshScores(); break;
           case 'clearScores': await clearScores(); break;
           case 'showScores': await scoreAction(message.key, 'show'); break;
+          case 'compareScores': await compareScores(message.keys); break;
           case 'linkScores': await scoreAction(message.key, 'link'); break;
           case 'unlinkScores': await scoreAction(message.key, 'unlink'); break;
           case 'openScoreSource': await openExternal(SCORE_METRICS[message.metric].sourceUrl); break;

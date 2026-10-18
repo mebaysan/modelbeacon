@@ -139,6 +139,7 @@ export type WebviewRequest =
   | { type: 'openHelp'; topic: 'auto' | 'legacy' | 'signin' }
   | { type: 'connectScores' | 'refreshScores' | 'clearScores' }
   | { type: 'showScores' | 'linkScores' | 'unlinkScores'; key: string }
+  | { type: 'compareScores'; keys: string[] }
   | { type: 'setCompositeScores'; enabled: boolean }
   | { type: 'openScoreSource'; metric: ScoreMetric }
   | { type: 'setAutoUpdate'; enabled: boolean };

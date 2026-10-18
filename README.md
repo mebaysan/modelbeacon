@@ -23,7 +23,7 @@ Built by [mebaysan](https://mebaysan.com). Free and open source. Independent of 
 
 ## From model names to visual comparisons
 
-Select up to three models in **Explore & compare**. Compare their capabilities and prices, then add published score charts to explore their reported strengths. Each metric has its own chart, readable values, units, source attribution, and dates.
+Select up to three models in **Explore & compare**. Adding a model or choosing **View comparison** automatically loads published scores using your saved connection. Model IDs and names resolve published references automatically, with saved manual choices taking precedence. No model-name prompt is required. Each metric has its own chart, readable values, units, source attribution, and dates.
 
 ![ModelBeacon comparison charts with fictional Example Model A, B, and C and illustrative scores](media/screenshots/comparison.png)
 
@@ -33,11 +33,11 @@ The bundled catalog includes **31 models**, with task guidance, capabilities, an
 
 ### Connect the scores you want
 
-1. Choose **Show score charts** on a model card. ModelBeacon opens the details and downloads the latest scores; enter your OpenRouter API key in VS Code's password prompt if you have not connected yet.
-2. Select the published reference you want to use when prompted. Your choice is saved, so an already linked model opens without asking again. **Link score reference** in a comparison or model's details also downloads scores first if none are cached.
-3. Read the charts in the expanded details, or add models to a comparison. Each **Show score charts** click refreshes scores automatically. **Refresh scores** is also available separately, and cached charts remain visible during a refresh or after a failed download.
+1. Choose **Add to compare** on model cards, then **View comparison**. Scores load automatically. You can also choose **Show score charts** for a single model; enter your OpenRouter API key in VS Code's password prompt if you have not connected yet.
+2. Charts appear for uniquely matched published references automatically. If a match is missing or ambiguous, it stays unavailable; **Link score reference** is an optional way to choose an alternative. You can change a reference or reset a manual choice to automatic matching.
+3. Read the charts in the comparison or expanded details. **Add to compare**, **View comparison**, and **Show score charts** load scores automatically, sharing a download when clicks overlap. **Refresh scores** is also available separately, and cached charts remain visible during a refresh or after a failed download.
 
-You do not need to connect or refresh separately before opening charts. Choosing a reference tells ModelBeacon which results to display for each model, including public catalog models. Your API key alone does not create these links.
+You do not need to fetch statistics separately or type a model name to open charts. Matching runs locally against the downloaded public scores. Version and reasoning variants are kept distinct; a similar name alone does not justify substituting another model.
 
 | Chart | Evidence | Availability |
 | --- | --- | --- |
@@ -49,7 +49,7 @@ Composite indexes are **off by default** because their methodology can incorpora
 
 ### Inspect a model's evidence
 
-Choose **Show score charts** to open a model's details and refresh its scores. The first time, select its published reference; later clicks retain your saved choice. You can change or unlink that reference in the details. All links require your choice and stay on your machine; similar names are never used to guess a score match.
+Choose **Show score charts** to open a model's details and refresh its scores. References resolve automatically from model identity and names. A manual override, if saved, takes precedence and stays on your machine. Ambiguous matches stay unavailable, and optional reference controls let you choose a different evaluation.
 
 ![Model details showing a fictional Example Model A and illustrative score charts](media/screenshots/model-details.png)
 
@@ -69,13 +69,13 @@ Requires **desktop VS Code 1.140+**. You can browse the public catalog without C
 4. Choose **Detect My Models** to include models returned by your installed providers. Enable **Available models only** to filter to the current detection results.
 5. Inspect the guidance and sources, then use **Open Copilot model picker** to choose a model in Copilot.
 
-Version **0.4.2** is distributed as a local VSIX; Marketplace publication is pending. [Building from source or upgrading an earlier local build?](docs/development.md)
+Version **0.4.4** is distributed as a local VSIX; Marketplace publication is pending. [Building from source or upgrading an earlier local build?](docs/development.md)
 
 ## Your model history stays local
 
 ModelBeacon makes **no inference requests**, collects no analytics, and does not read workspace files, prompts, chat history, credentials from installed model providers, or endpoint configurations. Detected model metadata stays in local extension storage; **Clear Local Models** removes that history, current discovery results, and references linked to those runtime identities.
 
-The optional score connection stores the OpenRouter key you explicitly enter in **VS Code SecretStorage**. Model references and cached public scores stay local; private model names and IDs are not sent to OpenRouter. **Show score charts**, **Connect OpenRouter**, and **Refresh scores** contact OpenRouter using that key and ordinary HTTP metadata; reference controls also download scores when no snapshot is cached. Opening the extension or reading already expanded charts makes no score request. **Disconnect & clear scores** removes the key, scores, and reference choices while keeping discovered model history and the GitHub catalog.
+The optional score connection stores the OpenRouter key you explicitly enter in **VS Code SecretStorage**. Model references and cached public scores stay local; private model names and IDs are not sent to OpenRouter. **Add to compare**, **View comparison**, **Show score charts**, **Connect OpenRouter**, and **Refresh scores** contact OpenRouter using that key and ordinary HTTP metadata; reference controls also download scores when no snapshot is cached. Opening the extension or reading already expanded charts makes no score request. **Disconnect & clear scores** removes the key, scores, and reference choices while keeping discovered model history and the GitHub catalog.
 
 Saved models remain useful offline and show their last-seen date. They are not treated as currently available. Discovery starts when requested and can refresh after provider changes during that session; opening a saved cache does not query providers.
 
@@ -84,7 +84,7 @@ Builds with a configured public catalog feed can check for updates at most once 
 ## Common questions
 
 **I connected OpenRouter, but why are there no charts?**  
-A successful download saves results without assigning them to your models. Choose **Show score charts** on a model card: it refreshes automatically, then asks you to select a published reference if one is not linked yet. Repeat for each model you want to compare. A missing metric stays unavailable; intelligence, coding, and agentic indexes also require **Include composite indexes** before opening charts or refreshing. Re-entering your API key is unnecessary when the download succeeded. If a refresh fails, previously saved charts remain available.
+Choose **View comparison** after adding models: it loads scores and resolves references automatically, without opening a model-name picker. **Show score charts** does the same for one model. If the downloaded data has no unique match, an optional reference control is available; a missing public result cannot be generated. A missing metric stays unavailable; intelligence, coding, and agentic indexes also require **Include composite indexes** before opening charts or refreshing. Re-entering your API key is unnecessary when the download succeeded. If a refresh fails, previously saved charts remain available.
 
 **Does ModelBeacon run benchmarks or pick a winner?**  
 It does not run evaluations. It presents sourced editorial guidance, capabilities, prices, and optional published scores from OpenRouter. It makes no inference requests, generates no universal score, and does not switch your model automatically. Score charts do not change the editorial task recommendations.
@@ -93,7 +93,7 @@ It does not run evaluations. It presents sourced editorial guidance, capabilitie
 It shows models exposed through VS Code's stable Language Model API. Results can differ from a provider's picker and do not prove subscription entitlement. The availability filter uses current detection results; cached models do not count, and failed detection does not substitute public-catalog models. Organization policies and Auto-only plans can limit selection.
 
 **Can I compare an organization or custom model?**  
-Yes, if its installed provider exposes it through the API. Compare its name, provider, version, and reported input limit beside public models. You can explicitly select a public OpenRouter reference for score charts; absent or unmatched results stay unavailable. An input limit is not an advertised context window. ModelBeacon does not configure providers, provision endpoints, or accept custom benchmark uploads.
+Yes, if its installed provider exposes it through the API. Compare its name, provider, version, and reported input limit beside public models. ModelBeacon resolves a unique public reference from its ID or name where possible. An optional manual override remains available; missing or ambiguous results stay unavailable. An input limit is not an advertised context window. ModelBeacon does not configure providers, provision endpoints, or accept custom benchmark uploads.
 
 ## Commands
 
@@ -112,3 +112,7 @@ Find these in the Command Palette under **ModelBeacon**:
 [Development and installation](docs/development.md) · [Catalog sources and maintenance](docs/catalog.md) · [Release validation](docs/validation.md) · [Changelog](CHANGELOG.md)
 
 Code: [MIT](LICENSE). Data: [source licenses and attribution](THIRD_PARTY_NOTICES.md).
+
+## Publishing from GitHub
+
+The public [mebaysan/modelbeacon repository](https://github.com/mebaysan/modelbeacon) hosts the listing images. The **Publish to VS Code Marketplace** workflow publishes stable GitHub Releases after validation, using repository secrets. See [publisher setup and release steps](docs/development.md#publishing).

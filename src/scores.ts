@@ -13,6 +13,41 @@ export const SCORE_METRICS: Record<ScoreMetric, {
   toolUse: { label: 'τ-bench verified airline', unit: '%', source: 'OpenRouter', sourceUrl: API_DOCS, composite: false },
 };
 
+export function findScoreReference(
+  model: { id: string; name: string; provider?: string; vendor?: string; version?: string },
+  records: readonly ModelScore[],
+): string | undefined {
+  const normalize = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, '-');
+  const providerName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const dates = (value: string) => [...value.matchAll(/\b(20\d{2})[-_]?(\d{2})[-_]?(\d{2})\b/g)].map(match => match.slice(1).join(''));
+  const requestedDates = new Set(dates(`${model.id} ${model.name} ${model.version ?? ''}`));
+  if (requestedDates.size > 1) return undefined;
+  const dateMatches = (record: ModelScore) => !requestedDates.size
+    || dates(`${record.modelId} ${record.modelName}`).includes([...requestedDates][0]);
+  const exact = records.filter(record => record.modelId.toLowerCase() === model.id.trim().toLowerCase());
+  if (exact.length) return new Set(exact.map(record => record.modelId)).size === 1 && exact.some(dateMatches) ? exact[0].modelId : undefined;
+
+  const providers = new Set(records.map(record => providerName(record.modelId.split('/')[0])));
+  const idProvider = model.id.includes('/') ? providerName(model.id.split('/')[0]) : undefined;
+  // A qualified public ID is authoritative; a different release must not be substituted by name.
+  if (idProvider && providers.has(idProvider)) return undefined;
+  const vendor = providerName(model.vendor ?? '');
+  const provider = model.provider ? providerName(model.provider) : providers.has(vendor) ? vendor : undefined;
+  const names = new Set([normalize(model.name)]);
+  if (!model.id.includes('/')) names.add(normalize(model.id));
+  const matches = new Set<string>();
+  for (const record of records) {
+    if (provider && providerName(record.modelId.split('/')[0]) !== provider) continue;
+    if (!dateMatches(record)) continue;
+    const prefix = record.modelName.match(/^([^:]+):\s+(.+)$/);
+    const name = prefix && providerName(prefix[1]) === providerName(record.modelId.split('/')[0]) ? prefix[2] : record.modelName;
+    if ([record.modelId.split('/')[1], record.modelName, name].some(value => names.has(normalize(value)))) {
+      matches.add(record.modelId);
+    }
+  }
+  return matches.size === 1 ? [...matches][0] : undefined;
+}
+
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid benchmark data.');
   return value as Record<string, unknown>;

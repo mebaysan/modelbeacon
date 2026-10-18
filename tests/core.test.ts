@@ -259,6 +259,8 @@ test('webview requests allow only known messages with their exact payload', () =
   assert.equal(isWebviewRequest({ type: 'linkScores', key: '["catalog","test"]' }), true);
   assert.equal(isWebviewRequest({ type: 'showScores', key: '["catalog","test"]' }), true);
   assert.equal(isWebviewRequest({ type: 'unlinkScores', key: '["catalog","test"]' }), true);
+  assert.equal(isWebviewRequest({ type: 'compareScores', keys: ['["catalog","test"]'] }), true);
+  assert.equal(isWebviewRequest({ type: 'compareScores', keys: ['one', 'two', 'three'] }), true);
   for (const metric of ['intelligence', 'coding', 'agentic', 'gpqa', 'toolUse']) assert.equal(isWebviewRequest({ type: 'openScoreSource', metric }), true);
   for (const input of [null, [], {}, { type: 'executeCommand' }, { type: 'ready', command: 'bad' },
     { type: 'openSource', sourceId: '' }, { type: 'openSource', sourceId: 4 },
@@ -267,6 +269,10 @@ test('webview requests allow only known messages with their exact payload', () =
     { type: 'linkScores', key: 'x'.repeat(1801) }, { type: 'unlinkScores', key: '' },
     { type: 'showScores', key: '' }, { type: 'showScores', key: 'x'.repeat(1801) },
     { type: 'showScores', key: '["catalog","test"]', apiKey: 'not-allowed' },
+    { type: 'compareScores', keys: [] }, { type: 'compareScores', keys: ['same', 'same'] },
+    { type: 'compareScores', keys: ['one', 'two', 'three', 'four'] }, { type: 'compareScores', keys: [''] },
+    { type: 'compareScores', keys: ['x'.repeat(1801)] }, { type: 'compareScores', keys: [null] },
+    { type: 'compareScores', keys: 'one' }, { type: 'compareScores', keys: ['one'], apiKey: 'not-allowed' },
     { type: 'openScoreSource', metric: 'constructor' }, { type: 'setCompositeScores', enabled: 'true' },
     { type: 'openHelp', topic: 'https://example.com' }, { type: 'setAutoUpdate', enabled: 'true' }]) {
     assert.equal(isWebviewRequest(input), false);

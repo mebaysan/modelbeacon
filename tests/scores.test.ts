@@ -1,11 +1,81 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseScoreResponses, parseScoreSnapshot, SCORE_METRICS } from '../src/scores.ts';
+import { findScoreReference, parseScoreResponses, parseScoreSnapshot, SCORE_METRICS } from '../src/scores.ts';
+import type { ModelScore } from '../src/types.ts';
 
 const DATE = '2026-10-17T12:00:00Z';
 const aa = { source: 'artificial-analysis', model_permaslug: 'openai/example-1', display_name: 'Example 1', intelligence_index: 71.2, coding_index: 65.8, agentic_index: 58.3 };
 const gpqa = { source: 'openrouter', model_permaslug: 'openai/example-1', display_name: 'Example 1', benchmark_type: 'gpqa_diamond', accuracy: 0.72, accuracy_stddev: 0.03, total_tasks: 300, last_run_timestamp: DATE };
 function response(data: unknown[], asOf = DATE) { return { data, meta: { as_of: asOf } }; }
+
+function score(modelId: string, modelName: string, metric: ModelScore['metric'] = 'gpqa', value = 72): ModelScore {
+  return { modelId, modelName, metric, value };
+}
+
+test('automatic references match exact public identities and unique provider-prefixed names across metrics', () => {
+  const records = [
+    score('openai/gpt-6.1-sol-20260929', 'OpenAI: GPT-6.1 Sol'),
+    score('openai/gpt-6.1-sol-20260929', 'GPT-6.1 Sol (Max)', 'intelligence'),
+    score('openai/gpt-6.1-sol-pro-20260929', 'OpenAI: GPT-6.1 Sol Pro'),
+  ];
+  assert.equal(findScoreReference({ id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', provider: 'OpenAI' }, records), records[0].modelId);
+  assert.equal(findScoreReference({ id: records[0].modelId, name: 'Private deployment', vendor: 'organization' }, records), records[0].modelId);
+  assert.equal(findScoreReference({ id: 'private-deployment', name: 'GPT-6.1 Sol', vendor: 'copilot', version: '1.0' }, records), records[0].modelId);
+  assert.equal(findScoreReference({ id: 'private-deployment', name: 'OpenAI: GPT-6.1 Sol', vendor: 'organization' }, records), records[0].modelId);
+  assert.equal(findScoreReference({ id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', provider: 'Other' }, records), undefined);
+});
+
+test('automatic names retain numeric versions and all reasoning and model variants', () => {
+  const records = [
+    score('vendor/example-5.3', 'Vendor: Example 5.3'),
+    score('vendor/example-5.3-high', 'Vendor: Example 5.3 (High)'),
+    score('vendor/example-5.3-mini', 'Vendor: Example 5.3 Mini'),
+  ];
+  assert.equal(findScoreReference({ id: 'custom', name: 'Example 5.3' }, records), 'vendor/example-5.3');
+  assert.equal(findScoreReference({ id: 'custom', name: 'Example 5.3 (High)' }, records), 'vendor/example-5.3-high');
+  assert.equal(findScoreReference({ id: 'custom', name: 'Example 5.30' }, records), undefined);
+  assert.equal(findScoreReference({ id: 'custom', name: 'Example 5' }, records), undefined);
+  assert.equal(findScoreReference({ id: 'custom', name: 'Example 5.3 (Low)' }, records), undefined);
+  assert.equal(findScoreReference({ id: 'custom', name: 'Example 5.3' }, records.slice(1)), undefined);
+});
+
+test('automatic references refuse ambiguous IDs even with identical scores or different metric coverage', () => {
+  const records = [
+    score('vendor/example-5-20260901', 'Vendor: Example 5'),
+    score('vendor/example-5-20261001', 'Example 5', 'intelligence'),
+  ];
+  assert.equal(findScoreReference({ id: 'example-5', name: 'Example 5', provider: 'vendor' }, records), undefined);
+  assert.equal(findScoreReference({ id: records[0].modelId, name: 'Example 5' }, records), records[0].modelId);
+  assert.equal(findScoreReference({ id: 'vendor/example-5-20260801', name: 'Example 5' }, records), undefined);
+  assert.equal(findScoreReference({ id: 'custom', name: 'Example 5', version: '2026-10-01' }, records), records[1].modelId);
+  assert.equal(findScoreReference({ id: 'custom', name: 'Example 5', version: '2026-08-01' }, records), undefined);
+  assert.equal(findScoreReference({ id: records[0].modelId, name: 'Example 5', version: '2026-10-01' }, records), undefined);
+  assert.equal(findScoreReference({ id: 'VENDOR/EXAMPLE-5', name: 'Example 5' }, [score('vendor/example-5', 'Example 5'), score('Vendor/Example-5', 'Example 5')]), undefined);
+});
+
+test('public providers disambiguate names while organization vendors do not invent a manufacturer', () => {
+  const records = [
+    score('deepseek/deepseek-v4', 'DeepSeek: DeepSeek V4'),
+    score('other/deepseek-v4', 'Other: DeepSeek V4'),
+    score('moonshotai/kimi-k3', 'MoonshotAI: Kimi K3'),
+    score('x-ai/grok-4.6-20260810', 'xAI: Grok 4.6'),
+  ];
+  assert.equal(findScoreReference({ id: 'private', name: 'DeepSeek V4', vendor: 'organization' }, records), undefined);
+  assert.equal(findScoreReference({ id: 'private', name: 'DeepSeek V4', provider: 'DeepSeek' }, records), records[0].modelId);
+  assert.equal(findScoreReference({ id: 'private', name: 'DeepSeek V4', vendor: 'deepseek' }, records), records[0].modelId);
+  assert.equal(findScoreReference({ id: 'kimi-k3', name: 'Kimi K3', provider: 'Moonshot AI' }, records), records[2].modelId);
+  assert.equal(findScoreReference({ id: 'grok-4.6', name: 'Grok 4.6', provider: 'xAI' }, records), records[3].modelId);
+  assert.equal(findScoreReference({ id: 'private', name: 'DeepSeek V4' }, [score('deepseek/experimental-1', 'Experiment: DeepSeek V4')]), undefined);
+});
+
+test('custom model names can resolve public references without saving private identities; zero is still a score', () => {
+  const records = [score('z-ai/glm-5.3', 'Z.AI: GLM 5.3', 'gpqa', 0)];
+  const before = structuredClone(records);
+  assert.equal(findScoreReference({ id: 'organization/private-deployment', name: 'GLM-5.3', vendor: 'organization' }, records), records[0].modelId);
+  assert.equal(findScoreReference({ id: 'z-ai/glm-5.3', name: 'Private model', vendor: 'organization' }, records), records[0].modelId);
+  assert.equal(findScoreReference({ id: 'private', name: 'GLM 5.3' }, []), undefined);
+  assert.deepEqual(records, before);
+});
 
 test('API scores retain distinct units and sources, with standard deviation rather than invented confidence intervals', () => {
   const snapshot = parseScoreResponses([response([aa, gpqa, { ...gpqa, benchmark_type: 'tau_bench_verified_airline', accuracy: 0.68 }])], true, DATE);

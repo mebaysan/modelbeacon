@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.4
+
+- Resolve published references automatically from model IDs and names when comparing or opening score charts; no reference-picker prompt is required.
+- Preserve manual reference overrides and leave ambiguous or missing matches unavailable.
+- Add Marketplace publishing on stable GitHub Releases using Microsoft Entra credentials from repository secrets.
+- Host listing images and documentation on the public GitHub repository, with release links pinned to their commit.
+
+## 0.4.3
+
+- Fetch published scores automatically when adding models to a comparison or choosing View comparison.
+- Reuse saved references immediately; guide unlinked models through one reference picker at a time, without a separate refresh step.
+- Share concurrent comparison downloads and preserve cached charts when a refresh fails.
+
 ## 0.4.2
 
 - Make Show score charts load scores automatically with the saved OpenRouter key, including before any scores have been downloaded.

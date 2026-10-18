@@ -6,4 +6,3 @@ playwright-report/
 test-results/
 .DS_Store
 artifacts/
-.modelbeacon-package-*/

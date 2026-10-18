@@ -1,6 +1,6 @@
 # Developing and releasing ModelBeacon
 
-For the product tour and installation from an existing VSIX, see the [README](../README.md). This guide covers the local workflow, upgrades, architecture, catalog hosting, and release preparation. Version 0.4.2 has not been published to the Marketplace or validated with a user beta.
+For the product tour and installation from an existing VSIX, see the [README](../README.md). This guide covers the local workflow, upgrades, architecture, catalog hosting, and release preparation. Version 0.4.4 has not been published to the Marketplace or validated with a user beta.
 
 ## Local development
 
@@ -73,7 +73,7 @@ Preserve these evidence distinctions when changing the product:
 
 - Task guidance is sourced editorial interpretation. Shortlisted choices display alphabetically and are not a measured ranking or guarantee.
 - API discovery does not establish account entitlement, exact picker parity, or equivalence to a public model snapshot. Custom identities receive no guessed public-model claims or Copilot rates.
-- The bundled catalog has no benchmark observations or measured rankings. Optional OpenRouter scores use a separate local snapshot and explicit user-selected reference identities. They do not alter task guidance, establish deployed-model equivalence, or populate the public catalog.
+- The bundled catalog has no benchmark observations or measured rankings. Optional OpenRouter scores use a separate local snapshot and automatically resolved references with optional manual overrides. They do not alter task guidance, establish deployed-model equivalence, or populate the public catalog.
 - Pricing means GitHub's published USD rates per million tokens for AI-credit billing, including cache and context tiers. It is not usage measurement or a personal bill; expired promotions are hidden and legacy annual-plan billing is linked separately.
 - API input limits remain separate from advertised context windows. Copilot Free/Student plans and organization policy may restrict selection; the interface links to GitHub's explanation of Auto.
 
@@ -81,13 +81,15 @@ See the [privacy policy](../PRIVACY.md) for storage and network behavior. The ex
 
 ### Published score integration
 
-**ModelBeacon: Connect OpenRouter Scores** uses a native password prompt and VS Code SecretStorage, then requests the public score snapshot. Every **Show score charts** click also refreshes scores with the saved key, prompting to connect first when needed. **Refresh Model Scores** remains a separate explicit refresh action. The key never enters webview state, settings, model caches, or the repository. Network requests go only to fixed OpenRouter HTTPS benchmark endpoints; discovered identities and reference choices are not sent. The extension discards OpenRouter pricing fields and keeps GitHub Copilot prices separate.
+**ModelBeacon: Connect OpenRouter Scores** uses a native password prompt and VS Code SecretStorage, then requests the public score snapshot. **Add to compare**, **View comparison**, and **Show score charts** also load scores with the saved key, prompting to connect first when needed. **Refresh Model Scores** remains a separate explicit refresh action. The key never enters webview state, settings, model caches, or the repository. Network requests go only to fixed OpenRouter HTTPS benchmark endpoints; discovered identities and reference choices are not sent. The extension discards OpenRouter pricing fields and keeps GitHub Copilot prices separate.
 
 GPQA Diamond and τ-bench Verified Airline are enabled by default. `llmBench.includeCompositeScores` defaults to `false`; enabling it permits Artificial Analysis intelligence, coding, and agentic indices whose methodology can incorporate Terminal-Bench. A setting change does not fetch data; use **Show score charts** or **Refresh Model Scores** afterward. There is no direct Terminal-Bench integration or scheduled benchmark import.
 
-The native reference picker links a catalog or discovered model to an identity in the downloaded public scores. All links require a user choice; there is no name-based automatic matching. Store links locally, keep vendor/version distinctions, and present them as reference values rather than proof of the actual provider configuration. **Disconnect and Clear Scores** deletes the key, public-score snapshot, and links while preserving discovered model history and the GitHub catalog.
+**Add to compare**, **View comparison**, and **Show score charts** download scores and render automatically resolved references. A saved manual override takes precedence. Otherwise, a shared resolver checks qualified IDs and unique normalized names while preserving version and reasoning distinctions. Unmatched or ambiguous identities remain unavailable. Automatic resolution runs locally and does not save a user-reference link or send model names to OpenRouter.
 
-**Show score charts** is available on home and explore model cards even without a cache. It opens the model's details and refreshes scores, then opens the native reference picker only if the model is unlinked. For a linked model, cached charts remain visible while refreshing and after a failed request; the saved reference does not change. Link/change reference actions also load scores when no snapshot is cached. A successful API connection alone does not establish any model association. Opening the extension, rendering charts, loading a cache, and changing settings never start a score download; there is no background refresh.
+Only the explicit **Link score reference** or **Change score reference** controls open a native reference picker. **Reset to automatic** removes the saved override. These references describe external evaluations, not proof of an identical provider deployment. **Disconnect and Clear Scores** deletes the key, public-score snapshot, and manual overrides while preserving discovered model history and the GitHub catalog.
+
+Overlapping requests share a download. Cached charts remain visible during refreshes and after failures. Opening the extension, rendering charts, restoring cached selections, removing models, clearing a comparison, and changing settings do not start a score download. There is no background refresh.
 
 Render separate charts per metric with numeric labels, units, source attribution, and snapshot dates. Accuracy percentages and index points must not share a scale or become a combined winner score. Unknown results remain unavailable. Show reported uncertainty only with its actual meaning; standard deviation is not a confidence interval, and missing uncertainty must not be invented. An API snapshot does not guarantee identical evaluation configurations across models or statistical significance.
 
@@ -105,18 +107,50 @@ To roll back an online catalog, restore the previous reviewed content in a new r
 
 The editable brand assets are `media/icon.svg` and `media/hero.svg`; their PNG exports are used by the listing and README. `media/activity-bar.svg` is the monochrome 24px variant shared by the Activity Bar and dashboard. README screenshots under `media/screenshots/` show the extension's UI through its development preview, without account data. `home.png` shows public-catalog guidance. `comparison.png` and `model-details.png` use fictional Example Model A, B, and C with synthetic scores; retain their visible sample-data labels and README captions whenever refreshing these images. These screenshots show the default reasoning and tool-use charts, with optional composite indexes disabled.
 
-1. Create the GitHub repository and enable Pages with **GitHub Actions** as the source. No repository or hosting is created by a local build.
-2. Review and merge the catalog. Run **Publish reviewed catalog** manually to publish `/catalog/v1.json` with license notices.
-3. Use the Marketplace publisher ID `mebaysan` and website `https://mebaysan.com`, add the real repository URL to the manifest, and complete [release validation](validation.md). The manifest sets the publisher, homepage, and author website; the Marketplace publisher profile is managed separately.
-4. Run **Build release VSIX** with the deployed HTTPS catalog URL. Alternatively set `LLMBENCH_CATALOG_URL` when running `npm run package:release` locally. This release command requires real public repository metadata so documentation and image links are rewritten to HTTPS addresses.
-5. Review the packaged README, images, and links, then publish the VSIX through your Marketplace publisher account. Publishing credentials are not stored in this project.
+### GitHub-hosted listing images
 
-### Local extension details page
+The public repository is [mebaysan/modelbeacon](https://github.com/mebaysan/modelbeacon). Both `npm run package` and `npm run package:release` retain the illustrated README. The manifest's `repository` URL lets VSCE rewrite relative image and documentation paths to public HTTPS URLs, using `main` for local packages. No separate image host or GitHub Pages deployment is needed. [VS Code link-rewriting documentation](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#marketplace-integration).
 
-VS Code 1.140's extension details page does not render the README's relative images or relative documentation links for this unpublished local package. There is no public repository or image host configured yet.
+Release workflows pass `--githubBranch "$GITHUB_SHA"` so images and documentation refer to the exact packaged commit. Keep `media/hero.png` and `media/screenshots/*.png` committed. Local edits to images become publicly visible after they are pushed; loading listing images requires a network connection. The explorer's own UI assets remain packaged locally.
 
-`npm run package` therefore gives `vsce --readme-path` a temporary text-only copy of the README: images are omitted and relative documentation links become readable file paths. The installation page still contains the product explanation, features, quickstart, privacy summary, and FAQs. The illustrated source README and documentation remain in the project; this packaging step does not rewrite them.
+### Marketplace credentials
 
-`npm run package:release` uses the illustrated README directly. Once a real public repository is configured, the normal VSIX packaging process rewrites relative documentation and image links to hosted HTTPS addresses. Verify those addresses and the rendered extension details before publishing. The extension's packaged icon is separate from README images.
+The workflow uses Microsoft Entra authentication through VSCE. Its credentials are GitHub repository secrets, exposed only to the publish step. Microsoft retires global Azure DevOps PATs on December 1, 2026; this workflow uses Entra credentials instead. [Current publishing guidance](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
+
+1. Create or use the Marketplace publisher **mebaysan** and set its website to **https://mebaysan.com**. The publisher profile is managed separately from `package.json`.
+2. Create a Microsoft Entra app registration and client secret. Record the tenant ID, application/client ID, and the secret **value**, not its secret ID.
+3. Authenticate as that service principal following Microsoft's [Entra publishing setup](https://learn.microsoft.com/en-us/azure/devops/extend/publish/command-line?view=azure-devops#publish-with-a-microsoft-entra-token). Obtain its Marketplace profile ID using:
+
+   ```sh
+   az rest --url https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798
+   ```
+
+4. In Marketplace publisher **mebaysan → Members → Add**, add the returned profile `id` with **Contributor** access. This is the identity's Marketplace profile ID, not its application/client or directory object ID. See [publisher roles](https://learn.microsoft.com/en-us/visualstudio/extensibility/walkthrough-publishing-a-visual-studio-extension?view=visualstudio#add-additional-users-to-manage-your-publisher-account). If identity lookup fails, complete Microsoft's tenant/organization service-principal setup from the linked instructions.
+5. Under [repository Settings → Secrets and variables → Actions](https://github.com/mebaysan/modelbeacon/settings/secrets/actions), add these repository secrets:
+
+   | Secret | Value |
+   | --- | --- |
+   | `AZURE_TENANT_ID` | Microsoft Entra directory/tenant ID |
+   | `AZURE_CLIENT_ID` | App registration application/client ID |
+   | `AZURE_CLIENT_SECRET` | Client secret value |
+
+Renew the client secret before its expiry and update the repository secret. The user-facing OpenRouter key is unrelated and is never used for publishing. The installed VSCE supports these variables through [EnvironmentCredential](https://learn.microsoft.com/en-us/javascript/api/@azure/identity/environmentcredential?view=azure-node-latest), so no Azure login action is required in the workflow.
+
+### Publish a version
+
+1. Complete [release validation](validation.md). Set the same new version in `package.json` and `package-lock.json`, and update `CHANGELOG.md`.
+2. Commit and push the changes, including the workflows and listing images.
+3. Create and publish a **stable GitHub Release** with a matching tag, for example `v0.4.4` for version `0.4.4`. Drafts and prereleases do not publish to Marketplace, and pushing a tag alone does not trigger this workflow.
+4. **Publish to VS Code Marketplace** checks the tag, publisher, package name, and lockfile versions; runs type, catalog, unit, browser, and native VS Code checks; packages a VSIX; uploads it as a workflow artifact; and publishes that exact file. Concurrent releases are serialized. Rerunning an already published version skips it instead of overwriting it.
+
+The optional repository **variable** `LLMBENCH_CATALOG_URL` can supply a deployed HTTPS catalog endpoint. Leave it unset for bundled-catalog-only releases. Images do not depend on this setting. To deploy the reviewed catalog separately, enable Pages with GitHub Actions as its source and run **Publish reviewed catalog**; then configure the deployed `/catalog/v1.json` URL.
+
+**Build release VSIX** remains available manually to produce an artifact without publishing; its catalog URL input is optional. Local release packaging also works:
+
+```sh
+npm run package:release -- --githubBranch main
+```
+
+Use a pushed commit SHA instead of `main` to pin a local review package to immutable content. Actual Marketplace authentication and publication require the configured secrets and publisher access; local builds do not perform either action.
 
 The code is [MIT licensed](../LICENSE). Third-party facts retain their source licenses and attribution in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). No third-party benchmark dataset is bundled.

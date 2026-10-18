@@ -3,8 +3,8 @@ on:
   workflow_dispatch:
     inputs:
       catalog_url:
-        description: Deployed HTTPS URL ending in /catalog/v1.json
-        required: true
+        description: Optional deployed HTTPS URL ending in /catalog/v1.json
+        required: false
         type: string
 permissions:
   contents: read
@@ -21,7 +21,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npm run package:release
+      - run: npm run package:release -- --githubBranch "$GITHUB_SHA"
       - uses: actions/upload-artifact@v4
         with:
           name: modelbeacon

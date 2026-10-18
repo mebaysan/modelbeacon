@@ -70,6 +70,7 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
   const secrets = options.secrets ?? new Map<string, string>();
   const inputs: unknown[] = [];
   const picks: unknown[][] = [];
+  const pickOptions: unknown[] = [];
   const warnings: string[] = [];
   const subscriptions: { dispose(): void }[] = [];
   const disposable = { dispose() {} };
@@ -107,7 +108,7 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
       },
       showWarningMessage: (message: string) => { warnings.push(message); },
       showInputBox: async (input: unknown) => { inputs.push(input); return options.input?.(); },
-      showQuickPick: async (items: unknown[]) => { picks.push(items); return options.pick?.(items); },
+      showQuickPick: async (items: unknown[], settings: unknown) => { picks.push(items); pickOptions.push(settings); return options.pick?.(items); },
     },
   };
   const loaded = { exports: {} as { activate: (context: unknown) => Promise<void> } };
@@ -151,6 +152,7 @@ async function host(discover: (...args: unknown[]) => Promise<unknown[]>, saved 
     secrets,
     inputs,
     picks,
+    pickOptions,
     warnings,
     failWrites: (failed = true) => { failWrites = failed; },
     failSecrets: () => { failSecrets = true; },
@@ -571,19 +573,21 @@ test('retrying a failed local-model clear removes runtime links even after they 
   assert.ok(app.saved.has('scoreCache.v1'));
 });
 
-test('Show score charts fetches before the reference picker and refreshes an existing reference without picking again', async () => {
+test('Show score charts fetches without choosing a reference and preserves explicitly linked references', async () => {
   const calls: string[] = [];
   const app = await host(async () => [custom], new Map(), true, {
     ...scoreOptions, secrets: new Map([['openRouterApiKey', 'test-openrouter-secret']]),
     fetcher: async url => { calls.push(String(url)); return scoreResponse(url); },
-    pick: async items => { assert.equal(calls.length, 2, 'Both score responses arrive before choosing a reference'); return items[0]; },
   });
   await app.command('llmBench.refreshModels');
   assert.equal(calls.length, 0, 'Opening and discovering do not fetch scores');
   await app.editor().send({ type: 'showScores', key: customScoreKey });
   assert.equal(app.inputs.length, 0);
-  assert.equal(app.picks.length, 1);
+  assert.equal(app.picks.length, 0);
   assert.equal(app.state().scores.snapshot?.records.length, 2);
+  assert.deepEqual(app.state().scores.links, {});
+  assert.equal(app.saved.has('scoreLinks.v1'), false);
+  await app.editor().send({ type: 'linkScores', key: customScoreKey });
   assert.equal(app.state().scores.links[customScoreKey], 'vendor/public-example-1');
   await app.editor().send({ type: 'showScores', key: customScoreKey });
   assert.equal(calls.length, 4, 'A later Show action fetches fresh scores');
@@ -603,8 +607,8 @@ test('Show score charts without a key connects once and fetches once, and Link a
     await app.editor().send({ type, key });
     assert.equal(app.inputs.length, 1);
     assert.equal(calls, 2, 'Connecting already downloads; the action must not download twice');
-    assert.equal(app.picks.length, 1);
-    assert.equal(app.state().scores.links[key], 'vendor/public-example-1');
+    assert.equal(app.picks.length, type === 'linkScores' ? 1 : 0);
+    assert.equal(app.state().scores.links[key], type === 'linkScores' ? 'vendor/public-example-1' : undefined);
   }
 });
 
@@ -620,9 +624,9 @@ test('Show score charts uses cached scores after failed refresh and preserves th
   const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
   await app.editor().send({ type: 'showScores', key });
   assert.equal(calls, 3);
-  assert.equal(app.picks.length, 1);
+  assert.equal(app.picks.length, 0);
   assert.deepEqual(app.state().scores.snapshot, snapshot);
-  assert.equal(app.state().scores.links[key], 'vendor/public-example-1');
+  assert.deepEqual(app.state().scores.links, {});
   assert.match(app.state().scores.message, /Keeping the previously saved scores/);
 });
 
@@ -648,7 +652,7 @@ test('failed or cancelled Show actions without data never open a reference picke
   }
 });
 
-test('duplicate Show clicks share the native key prompt, download and reference picker', async () => {
+test('duplicate Show clicks share the native key prompt and download without asking for references', async () => {
   const entered = gate<string>();
   const prompt = gate<void>();
   let calls = 0;
@@ -664,10 +668,10 @@ test('duplicate Show clicks share the native key prompt, download and reference 
   await Promise.all([first, second]);
   assert.equal(app.inputs.length, 1);
   assert.equal(calls, 2);
-  assert.equal(app.picks.length, 1);
+  assert.equal(app.picks.length, 0);
 });
 
-test('Show score charts waits for an already running refresh before asking for a reference', async () => {
+test('Show score charts waits for an already running refresh without asking for a reference', async () => {
   const fetching = gate<void>();
   const release = gate<void>();
   let calls = 0;
@@ -684,19 +688,18 @@ test('Show score charts waits for an already running refresh before asking for a
   release.resolve();
   await Promise.all([refresh, showing]);
   assert.equal(calls, 2);
-  assert.equal(app.picks.length, 1);
-  assert.equal(app.state().scores.links[key], 'vendor/public-example-1');
+  assert.equal(app.picks.length, 0);
+  assert.deepEqual(app.state().scores.links, {});
 });
 
-test('clearing during a Show key prompt, download or picker cannot restore scores or references', async () => {
-  for (const phase of ['prompt', 'download', 'picker']) {
+test('clearing during a Show key prompt or download cannot restore scores or references', async () => {
+  for (const phase of ['prompt', 'download']) {
     const started = gate<void>();
     const release = gate<void>();
     const app = await host(async () => [], new Map(), true, {
       ...scoreOptions,
       input: async () => { if (phase === 'prompt') { started.resolve(); await release.promise; } return 'test-openrouter-secret'; },
       fetcher: async url => { if (phase === 'download') { started.resolve(); await release.promise; } return scoreResponse(url); },
-      pick: async items => { if (phase === 'picker') { started.resolve(); await release.promise; } return items[0]; },
     });
     const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
     const showing = app.editor().send({ type: 'showScores', key });
@@ -709,7 +712,7 @@ test('clearing during a Show key prompt, download or picker cannot restore score
     assert.equal(app.saved.has('scoreLinks.v1'), false);
     assert.equal(app.state().scores.snapshot, undefined);
     assert.deepEqual(app.state().scores.links, {});
-    assert.equal(app.picks.length, phase === 'picker' ? 1 : 0);
+    assert.equal(app.picks.length, 0);
   }
 });
 
@@ -735,11 +738,12 @@ test('clearing local models or disposing while Show downloads prevents a stale r
   }
 });
 
-test('clearing in the same turn prevents deferred Show and Connect actions from starting a prompt or fetch', async () => {
-  for (const action of ['show', 'connect']) {
+test('clearing in the same turn prevents deferred Show, Compare and Connect actions from starting a prompt or fetch', async () => {
+  for (const action of ['show', 'compare', 'connect']) {
     const app = await host(async () => [], new Map(), true, scoreOptions);
     const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
-    const pending = action === 'show' ? app.editor().send({ type: 'showScores', key }) : app.command('llmBench.connectScores');
+    const pending = action === 'show' ? app.editor().send({ type: 'showScores', key })
+      : action === 'compare' ? app.editor().send({ type: 'compareScores', keys: [key] }) : app.command('llmBench.connectScores');
     const clearing = app.command('llmBench.clearScores');
     await Promise.all([pending, clearing]);
     assert.equal(app.inputs.length, 0);
@@ -760,7 +764,7 @@ test('unlink takes precedence over a pending Show refresh and cannot be undone w
     },
   });
   const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
-  await app.editor().send({ type: 'showScores', key });
+  await app.editor().send({ type: 'linkScores', key });
   assert.equal(app.state().scores.links[key], 'vendor/public-example-1');
   waitForRefresh = true;
   const showing = app.editor().send({ type: 'showScores', key });
@@ -772,4 +776,178 @@ test('unlink takes precedence over a pending Show refresh and cannot be undone w
   assert.equal(app.picks.length, 1);
   assert.equal(app.state().scores.links[key], undefined);
   assert.equal((app.saved.get('scoreLinks.v1') as Record<string, string>)[key], undefined);
+});
+
+test('Compare downloads once with the saved key without reference prompts and preserves manual references', async () => {
+  let calls = 0;
+  const app = await host(async () => [custom], new Map(), true, {
+    ...scoreOptions, secrets: new Map([['openRouterApiKey', 'test-openrouter-secret']]),
+    fetcher: async url => { calls++; return scoreResponse(url); },
+  });
+  await app.command('llmBench.refreshModels');
+  const model = app.state().catalog.models[0];
+  const keys = [JSON.stringify(['catalog', model.id]), customScoreKey];
+  await app.editor().send({ type: 'compareScores', keys });
+  assert.equal(calls, 2, 'One download serves the whole selection');
+  assert.equal(app.inputs.length, 0, 'Reuse the configured key');
+  assert.equal(app.picks.length, 0);
+  assert.equal(app.state().scores.snapshot?.records.length, 2);
+  assert.deepEqual(app.state().scores.links, {});
+  assert.equal(app.saved.has('scoreLinks.v1'), false);
+  await app.editor().send({ type: 'linkScores', key: customScoreKey });
+  assert.deepEqual(app.pickOptions.map(settings => (settings as { title: string }).title), [
+    `Choose a published reference for ${custom.name}`,
+  ]);
+  const links = app.state().scores.links;
+  await app.editor().send({ type: 'compareScores', keys });
+  assert.equal(calls, 4, 'A later comparison refreshes once');
+  assert.equal(app.picks.length, 1, 'Only the explicit Link action opened a reference picker');
+  assert.deepEqual(app.state().scores.links, links);
+  assert.doesNotMatch(JSON.stringify(app.editor().states), /test-openrouter-secret/);
+});
+
+test('Compare connects once when needed and never invents saved references', async () => {
+  for (const cancel of ['none', 'key']) {
+    let calls = 0;
+    const app = await host(async () => [], new Map(), true, {
+      ...scoreOptions,
+      input: async () => cancel === 'key' ? undefined : 'test-openrouter-secret',
+      fetcher: async url => { calls++; return scoreResponse(url); },
+    });
+    const keys = app.state().catalog.models.slice(0, 2).map(model => JSON.stringify(['catalog', model.id]));
+    await app.editor().send({ type: 'compareScores', keys });
+    assert.equal(app.inputs.length, 1);
+    assert.equal(calls, cancel === 'key' ? 0 : 2);
+    assert.equal(app.picks.length, 0);
+    assert.deepEqual(app.state().scores.links, {});
+  }
+});
+
+test('rapid additions, View comparison and Show share an in-flight download without reference prompts', async () => {
+  const fetching = gate<void>();
+  const download = gate<void>();
+  let calls = 0;
+  const app = await host(async () => [], new Map(), true, {
+    ...scoreOptions, secrets: new Map([['openRouterApiKey', 'test-openrouter-secret']]),
+    fetcher: async url => { calls++; fetching.resolve(); await download.promise; return scoreResponse(url); },
+  });
+  const keys = app.state().catalog.models.slice(0, 3).map(model => JSON.stringify(['catalog', model.id]));
+  const first = app.editor().send({ type: 'compareScores', keys: keys.slice(0, 1) });
+  await fetching.promise;
+  const second = app.editor().send({ type: 'compareScores', keys: keys.slice(0, 2) });
+  const third = app.editor().send({ type: 'compareScores', keys });
+  const view = app.editor().send({ type: 'compareScores', keys });
+  const showing = app.editor().send({ type: 'showScores', key: keys[0] });
+  await new Promise(resolve => setImmediate(resolve));
+  download.resolve();
+  await Promise.all([first, second, third, view, showing]);
+  assert.equal(calls, 2);
+  assert.equal(app.picks.length, 0);
+  assert.deepEqual(app.state().scores.links, {});
+});
+
+test('only explicit Link actions open reference pickers and concurrent selections are serialized', async () => {
+  const picking = gate<void>();
+  const release = gate<void>();
+  let activePickers = 0;
+  const app = await host(async () => [], new Map(), true, {
+    ...scoreOptions,
+    pick: async items => {
+      assert.equal(activePickers++, 0, 'A later explicit Link must not replace the current picker');
+      picking.resolve();
+      await release.promise;
+      activePickers--;
+      return items[0];
+    },
+  });
+  const keys = app.state().catalog.models.slice(0, 2).map(model => JSON.stringify(['catalog', model.id]));
+  await app.editor().send({ type: 'compareScores', keys });
+  assert.equal(app.picks.length, 0);
+  const first = app.editor().send({ type: 'linkScores', key: keys[0] });
+  await picking.promise;
+  const second = app.editor().send({ type: 'linkScores', key: keys[1] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.picks.length, 1);
+  release.resolve();
+  await Promise.all([first, second]);
+  assert.equal(app.picks.length, 2);
+  assert.deepEqual(Object.keys(app.state().scores.links), keys);
+});
+
+test('Compare rejects unknown or malformed selections before prompting or making requests', async () => {
+  const app = await host(async () => [], new Map(), true, scoreOptions);
+  const key = JSON.stringify(['catalog', app.state().catalog.models[0].id]);
+  for (const keys of [[key, '["catalog","unknown"]'], ['["runtime","unknown"]'], [], [key, key], [key, null]]) {
+    await app.editor().send({ type: 'compareScores', keys });
+  }
+  assert.equal(app.inputs.length, 0);
+  assert.equal(app.picks.length, 0);
+  assert.equal(app.saved.has('scoreCache.v1'), false);
+});
+
+test('Compare preserves cached charts when refreshing fails and does not prompt without any score data', async () => {
+  let offline = false;
+  const app = await host(async () => [], new Map(), true, {
+    ...scoreOptions, fetcher: async url => { if (offline) throw new Error('offline'); return scoreResponse(url); },
+  });
+  await app.command('llmBench.connectScores');
+  const snapshot = app.state().scores.snapshot;
+  offline = true;
+  const keys = app.state().catalog.models.slice(0, 2).map(model => JSON.stringify(['catalog', model.id]));
+  await app.editor().send({ type: 'compareScores', keys });
+  assert.deepEqual(app.state().scores.snapshot, snapshot);
+  assert.equal(app.picks.length, 0);
+  assert.match(app.state().scores.message, /Keeping the previously saved scores/);
+  const empty = await host(async () => [], new Map(), true, {
+    ...scoreOptions, fetcher: async () => { throw new Error('offline'); },
+  });
+  await empty.editor().send({ type: 'compareScores', keys });
+  assert.equal(empty.picks.length, 0);
+  assert.equal(empty.state().scores.snapshot, undefined);
+});
+
+test('clearing scores during a comparison key prompt or download invalidates the request', async () => {
+  for (const phase of ['prompt', 'download']) {
+    const started = gate<void>();
+    const release = gate<void>();
+    const app = await host(async () => [], new Map(), true, {
+      ...scoreOptions, secrets: phase === 'prompt' ? undefined : new Map([['openRouterApiKey', 'test-openrouter-secret']]),
+      input: async () => { started.resolve(); await release.promise; return 'test-openrouter-secret'; },
+      fetcher: async url => { if (phase === 'download') { started.resolve(); await release.promise; } return scoreResponse(url); },
+    });
+    const keys = app.state().catalog.models.slice(0, 2).map(model => JSON.stringify(['catalog', model.id]));
+    const comparing = app.editor().send({ type: 'compareScores', keys });
+    await started.promise;
+    await app.command('llmBench.clearScores');
+    release.resolve();
+    await comparing;
+    assert.equal(app.picks.length, 0);
+    assert.equal(app.saved.has('scoreLinks.v1'), false);
+    assert.equal(app.saved.has('scoreCache.v1'), false);
+    assert.equal(app.secrets.size, 0);
+    assert.deepEqual(app.state().scores.links, {});
+  }
+});
+
+test('comparison references cannot outlive unlink, local-model clearing, or extension disposal', async () => {
+  for (const action of ['unlink', 'clear-local', 'dispose']) {
+    const started = gate<void>();
+    const release = gate<void>();
+    const app = await host(async () => [custom], new Map(), true, {
+      ...scoreOptions, secrets: new Map([['openRouterApiKey', 'test-openrouter-secret']]),
+      fetcher: async url => { started.resolve(); await release.promise; return scoreResponse(url); },
+    });
+    await app.command('llmBench.refreshModels');
+    const comparing = app.editor().send({ type: 'compareScores', keys: [customScoreKey] });
+    await started.promise;
+    if (action === 'unlink') await app.editor().send({ type: 'unlinkScores', key: customScoreKey });
+    else if (action === 'clear-local') {
+      await app.command('llmBench.clearLocalModels');
+      await app.command('llmBench.refreshModels');
+    } else app.dispose();
+    release.resolve();
+    await comparing;
+    assert.equal(app.picks.length, 0);
+    assert.equal(Object.keys((app.saved.get('scoreLinks.v1') ?? {}) as object).length, 0);
+  }
 });
